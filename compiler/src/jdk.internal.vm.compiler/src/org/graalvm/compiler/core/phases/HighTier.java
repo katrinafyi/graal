@@ -43,6 +43,7 @@ import org.graalvm.compiler.options.Option;
 import org.graalvm.compiler.options.OptionKey;
 import org.graalvm.compiler.options.OptionType;
 import org.graalvm.compiler.options.OptionValues;
+import org.graalvm.compiler.phases.common.ArrayBoundsCheckEliminationPhase;
 import org.graalvm.compiler.phases.common.BoxNodeIdentityPhase;
 import org.graalvm.compiler.phases.common.BoxNodeOptimizationPhase;
 import org.graalvm.compiler.phases.common.CanonicalizerPhase;
@@ -90,6 +91,8 @@ public class HighTier extends BaseTier<HighTierContext> {
         if (EarlyGVN.getValue(options)) {
             appendPhase(new DominatorBasedGlobalValueNumberingPhase(canonicalizer));
         }
+
+        appendPhase(new ArrayBoundsCheckEliminationPhase());
 
         LoopPolicies loopPolicies = createLoopPolicies(options);
         appendPhase(new LoopFullUnrollPhase(canonicalizer, loopPolicies));

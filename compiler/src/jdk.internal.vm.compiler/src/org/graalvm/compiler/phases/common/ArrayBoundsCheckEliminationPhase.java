@@ -38,13 +38,13 @@ import org.graalvm.compiler.options.OptionKey;
 import org.graalvm.compiler.options.OptionType;
 import org.graalvm.compiler.phases.Phase;
 
-public class DeadCodeEliminationPhase extends Phase {
+public class ArrayBoundsCheckEliminationPhase extends Phase {
 
     public static class Options {
 
         // @formatter:off
-        @Option(help = "Disable optional dead code eliminations", type = OptionType.Debug)
-        public static final OptionKey<Boolean> ReduceDCE = new OptionKey<>(true);
+        @Option(help = "Disable array bounds check elimations", type = OptionType.Debug)
+        public static final OptionKey<Boolean> DisableABCE = new OptionKey<>(true);
         // @formatter:on
     }
 
@@ -57,15 +57,25 @@ public class DeadCodeEliminationPhase extends Phase {
      * Creates a dead code elimination phase that will be run irrespective of
      * {@link Options#ReduceDCE}.
      */
-    public DeadCodeEliminationPhase() {
+    public ArrayBoundsCheckEliminationPhase() {
         this(Optionality.Required);
+    }
+
+    @Override
+    protected boolean shouldDumpBeforeAtBasicLevel() {
+        return true;
+    }
+
+    @Override
+    protected boolean shouldDumpAfterAtBasicLevel() {
+        return true;
     }
 
     /**
      * Creates a dead code elimination phase that will be run only if it is
      * {@linkplain Optionality#Required non-optional} or {@link Options#ReduceDCE} is false.
      */
-    public DeadCodeEliminationPhase(Optionality optionality) {
+    public ArrayBoundsCheckEliminationPhase(Optionality optionality) {
         this.optional = optionality == Optionality.Optional;
     }
 
@@ -78,7 +88,7 @@ public class DeadCodeEliminationPhase extends Phase {
 
     @Override
     public void run(StructuredGraph graph) {
-        if (optional && Options.ReduceDCE.getValue(graph.getOptions())) {
+        if (optional && Options.DisableABCE.getValue(graph.getOptions())) {
             return;
         }
 
@@ -144,7 +154,7 @@ public class DeadCodeEliminationPhase extends Phase {
             if (!flood.isMarked(node)) {
                 node.markDeleted();
                 node.applyInputs(consumer);
-                graph.getOptimizationLog().report(DebugContext.VERY_DETAILED_LEVEL, DeadCodeEliminationPhase.class, "NodeRemoval", node);
+                graph.getOptimizationLog().report(DebugContext.VERY_DETAILED_LEVEL, ArrayBoundsCheckEliminationPhase.class, "NodeRemoval", node);
             }
         }
     }

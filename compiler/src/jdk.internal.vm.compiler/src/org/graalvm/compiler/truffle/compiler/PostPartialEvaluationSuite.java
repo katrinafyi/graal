@@ -30,6 +30,7 @@ import org.graalvm.compiler.nodes.java.MethodCallTargetNode;
 import org.graalvm.compiler.options.OptionValues;
 import org.graalvm.compiler.phases.BasePhase;
 import org.graalvm.compiler.phases.PhaseSuite;
+import org.graalvm.compiler.phases.common.ArrayBoundsCheckEliminationPhase;
 import org.graalvm.compiler.phases.common.CanonicalizerPhase;
 import org.graalvm.compiler.phases.common.ConditionalEliminationPhase;
 import org.graalvm.compiler.phases.common.inlining.InliningUtil;
@@ -45,6 +46,7 @@ public class PostPartialEvaluationSuite extends PhaseSuite<TruffleTierContext> {
         appendPhase(new ConvertDeoptimizeToGuardPhase(canonicalizerPhase));
         appendPhase(new InlineReplacementsPhase());
         appendPhase(new ConditionalEliminationPhase(false));
+        appendPhase(new ArrayBoundsCheckEliminationPhase(ArrayBoundsCheckEliminationPhase.Optionality.Optional));
         appendPhase(canonicalizerPhase);
         appendPhase(new FrameAccessVerificationPhase());
         appendPhase(new PartialEscapePhase(iterativePartialEscape, canonicalizerPhase, optionValues));

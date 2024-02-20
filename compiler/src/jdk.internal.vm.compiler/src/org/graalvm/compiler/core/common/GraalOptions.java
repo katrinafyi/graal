@@ -176,6 +176,9 @@ public final class GraalOptions {
     public static final OptionKey<String> RegisterPressure = new OptionKey<>(null);
 
     @Option(help = "", type = OptionType.Debug)
+    public static final OptionKey<Boolean> BoundsCheckElimination = new OptionKey<>(true);
+
+    @Option(help = "", type = OptionType.Debug)
     public static final OptionKey<Boolean> ConditionalElimination = new OptionKey<>(true);
 
     @Option(help = "", type = OptionType.Debug)
