@@ -26,13 +26,21 @@ package org.graalvm.compiler.phases.common;
 
 import java.util.Optional;
 
+import org.graalvm.collections.EconomicMap;
+import org.graalvm.collections.Equivalence;
+import org.graalvm.collections.Pair;
 import org.graalvm.compiler.debug.DebugContext;
 import org.graalvm.compiler.graph.Node;
 import org.graalvm.compiler.graph.NodeFlood;
 import org.graalvm.compiler.nodes.AbstractEndNode;
 import org.graalvm.compiler.nodes.GraphState;
 import org.graalvm.compiler.nodes.GuardNode;
+import org.graalvm.compiler.nodes.NamedLocationIdentity;
 import org.graalvm.compiler.nodes.StructuredGraph;
+import org.graalvm.compiler.nodes.cfg.ControlFlowGraph;
+import org.graalvm.compiler.nodes.cfg.HIRBlock;
+import org.graalvm.compiler.nodes.java.ArrayLengthNode;
+import org.graalvm.compiler.nodes.memory.ReadNode;
 import org.graalvm.compiler.options.Option;
 import org.graalvm.compiler.options.OptionKey;
 import org.graalvm.compiler.options.OptionType;
@@ -92,6 +100,32 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             return;
         }
 
+        // from CE
+        ControlFlowGraph cfg;
+//        cfg = ControlFlowGraph.compute(graph, true, true, true, true);
+//        ControlFlowGraph.RecursiveVisitor<?> visitor = createVisitor(graph, cfg, blockToNodes, nodeToBlock, context);
+//        cfg.visitDominatorTree(visitor, graph.isBeforeStage(GraphState.StageFlag.VALUE_PROXY_REMOVAL));
+
+        // a weighted directed graph, with (src, tgt) as keys.
+        EconomicMap<Pair<Node, Node>, Integer> essa = EconomicMap.create();
+
+        // graal ir does not explicitly assign to local variables. instead, we can pretend each SSA node is an assignment
+        // to a variable called itself.
+        for (Node node : graph.getNodes()) {
+            if (node instanceof ReadNode) {
+                var readNode = (ReadNode) node;
+                var loc = readNode.getLocationIdentity();
+                if (loc.toString().equals("[].length:final")) {
+                    var len = new ArrayLengthNode(readNode.getAddress());
+//                    essa.put(Pair.create())
+                }
+                System.out.println(readNode.getLocationIdentity());
+
+            }
+            System.out.println(node.getClass().toString() + " " +  node);
+        }
+
+        // following is from DCE
         NodeFlood flood = graph.createNodeFlood();
         int totalNodeCount = graph.getNodeCount();
         flood.add(graph.start());
@@ -156,6 +190,19 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 node.applyInputs(consumer);
                 graph.getOptimizationLog().report(DebugContext.VERY_DETAILED_LEVEL, ArrayBoundsCheckEliminationPhase.class, "NodeRemoval", node);
             }
+        }
+    }
+
+    public static class Instance implements ControlFlowGraph.RecursiveVisitor<Integer> {
+
+        @Override
+        public Integer enter(HIRBlock b) {
+            return null;
+        }
+
+        @Override
+        public void exit(HIRBlock b, Integer value) {
+
         }
     }
 }
