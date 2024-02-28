@@ -24,21 +24,42 @@
  */
 package org.graalvm.compiler.phases.common;
 
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.StreamSupport;
 
+import jdk.vm.ci.meta.Constant;
+import jdk.vm.ci.meta.DeoptimizationAction;
+import jdk.vm.ci.meta.DeoptimizationReason;
+import jdk.vm.ci.meta.JavaConstant;
+import jdk.vm.ci.meta.PrimitiveConstant;
 import org.graalvm.collections.EconomicMap;
+import org.graalvm.collections.EconomicSet;
 import org.graalvm.collections.Equivalence;
 import org.graalvm.collections.Pair;
+import org.graalvm.compiler.core.common.type.StampFactory;
 import org.graalvm.compiler.debug.DebugContext;
 import org.graalvm.compiler.graph.Node;
 import org.graalvm.compiler.graph.NodeFlood;
 import org.graalvm.compiler.nodes.AbstractEndNode;
+import org.graalvm.compiler.nodes.ConstantNode;
 import org.graalvm.compiler.nodes.GraphState;
 import org.graalvm.compiler.nodes.GuardNode;
+import org.graalvm.compiler.nodes.*;
 import org.graalvm.compiler.nodes.NamedLocationIdentity;
+import org.graalvm.compiler.nodes.NodeView;
 import org.graalvm.compiler.nodes.StructuredGraph;
+import org.graalvm.compiler.nodes.calc.AddNode;
+import org.graalvm.compiler.nodes.calc.ConditionalNode;
+import org.graalvm.compiler.nodes.calc.IntegerLessThanNode;
+import org.graalvm.compiler.nodes.calc.NotNode;
 import org.graalvm.compiler.nodes.cfg.ControlFlowGraph;
 import org.graalvm.compiler.nodes.cfg.HIRBlock;
+import org.graalvm.compiler.nodes.extended.AnchoringNode;
 import org.graalvm.compiler.nodes.java.ArrayLengthNode;
 import org.graalvm.compiler.nodes.memory.ReadNode;
 import org.graalvm.compiler.options.Option;
@@ -88,17 +109,28 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
     }
 
     private final boolean optional;
+    private final boolean disabled = false;
 
     @Override
     public Optional<NotApplicable> notApplicableTo(GraphState graphState) {
         return ALWAYS_APPLICABLE;
     }
 
+    private PrimitiveConstant castConstantLong(Node node) {
+        if (node instanceof ConstantNode c && c.getValue() instanceof PrimitiveConstant prim) {
+            if (prim.getJavaKind().isNumericInteger())
+                return prim;
+        }
+        return null;
+    }
+
     @Override
     public void run(StructuredGraph graph) {
-        if (optional && Options.DisableABCE.getValue(graph.getOptions())) {
+        if (disabled || optional && Options.DisableABCE.getValue(graph.getOptions())) {
             return;
         }
+
+        var end = addPiNodes( graph.start(), new ArrayDeque<>(), EconomicSet.create());
 
         // from CE
         ControlFlowGraph cfg;
@@ -107,21 +139,37 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 //        cfg.visitDominatorTree(visitor, graph.isBeforeStage(GraphState.StageFlag.VALUE_PROXY_REMOVAL));
 
         // a weighted directed graph, with (src, tgt) as keys.
-        EconomicMap<Pair<Node, Node>, Integer> essa = EconomicMap.create();
+        EconomicMap<Pair<Node, Node>, Long> essa = EconomicMap.create();
 
         // graal ir does not explicitly assign to local variables. instead, we can pretend each SSA node is an assignment
         // to a variable called itself.
         for (Node node : graph.getNodes()) {
-            if (node instanceof ReadNode) {
-                var readNode = (ReadNode) node;
-                var loc = readNode.getLocationIdentity();
-                if (loc.toString().equals("[].length:final")) {
-                    var len = new ArrayLengthNode(readNode.getAddress());
-//                    essa.put(Pair.create())
+            // ignored:
+            // vi = Aj.length
+            // vi = c
+
+            if (node instanceof AddNode add) {
+                long weight = -1;
+                PrimitiveConstant prim;
+                Node other = null;
+                if ((prim = castConstantLong(add.getX())) != null) {
+                    weight = prim.asLong();
+                    other = add.getY();
+                } else if ((prim = castConstantLong(add.getY())) != null) {
+                    weight = prim.asLong();
+                    other = add.getX();
                 }
-                System.out.println(readNode.getLocationIdentity());
+                if (other != null)
+                    essa.put(Pair.create(other, node), weight);
+            } else if (node instanceof IfNode branch) {
+                var tcase = branch.trueSuccessor();
+                for (var tnode : tcase.getBlockNodes()) {
+                    // get everything bounded by the tcase
+                }
+                var fcase = branch.falseSuccessor();
 
             }
+
             System.out.println(node.getClass().toString() + " " +  node);
         }
 
@@ -150,6 +198,88 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         }
 
         deleteNodes(flood, graph);
+    }
+
+    private EconomicMap<Node, Node> makePiMap(AnchoringNode anchor, ValueNode x, ValueNode y, LogicNode cond, boolean whichBranch) {
+        var graph = cond.graph();
+        var guard = new GuardNode(cond, anchor, DeoptimizationReason.None, DeoptimizationAction.None, !whichBranch, null, null);
+
+        return EconomicMap.of(
+                x, graph.addOrUnique(PiNode.create(x, x.stamp(NodeView.DEFAULT), guard)),
+                y, graph.addOrUnique(PiNode.create(y, y.stamp(NodeView.DEFAULT), guard)));
+    }
+
+    private void doPiReplacements(Node node, Deque<Node> children, final Deque<EconomicMap<Node, Node>> replacements) {
+
+        for (var inp : node.inputs()) {
+            Node repl = null;
+            for (var em : replacements) {
+                if (repl != null) break;
+                repl = em.get(inp);
+            }
+
+            if (repl != null)
+                node.replaceAllInputs(inp, repl);
+        }
+    }
+
+    private AbstractEndNode addPiNodes(Node node, final Deque<EconomicMap<Node, Node>> replacements, final EconomicSet<Node> seen) {
+        // this will perform a top-down visit of the control flow tree, inserting pi nodes at branches.
+        // XXX limitation: we only pi-ify precisely the operands to the < condition.
+        // hopefully, the graph algorithm handles this transitively.
+        while (node != null) {
+            System.out.println("addPiNodes: " + node.toString());
+            if (node instanceof AbstractEndNode end && end.merge() != null && end.merge() instanceof MergeNode) {
+                return end;
+            }
+
+            doPiReplacements(node, new ArrayDeque<>(), replacements);
+
+            if (node instanceof IfNode ifnode) {
+                var cond = ifnode.condition();
+                if (cond instanceof IntegerLessThanNode ltnode) {
+                    System.out.println("recursing into if branches... " + ifnode.toString());
+                    var x = ltnode.getX();
+                    var y = ltnode.getY();
+
+                    replacements.push(makePiMap(ifnode.trueSuccessor(), x, y, cond, true));
+                    var tend = addPiNodes(ifnode.trueSuccessor(), replacements, EconomicSet.create());
+                    replacements.pop();
+
+                    replacements.push(makePiMap(ifnode.falseSuccessor(), x, y, cond, false));
+                    var fend = addPiNodes(ifnode.trueSuccessor(), replacements, EconomicSet.create());
+                    replacements.pop();
+
+                    var merge1 = tend != null ? tend.merge() : null;
+                    var merge2 = fend != null ? fend.merge() : null;
+                    assert Objects.equals(merge1, merge2) : "differing merge results " + merge1 + " | " + merge2;
+                    node = merge1;
+                    continue;
+                } else {
+                    System.out.println("unknown if condition: " + cond.toString());
+                }
+            }
+
+            List<AbstractEndNode> ends = new ArrayList<>();
+            for (var succ : node.cfgSuccessors()) {
+                replacements.push(EconomicMap.emptyMap());
+                ends.add(addPiNodes(succ, replacements, EconomicSet.create()));
+                replacements.pop();
+            }
+            if (ends.isEmpty()) {
+                System.out.println("... " + node + " empty successors");
+                return null;
+            } else {
+                boolean unique = true;
+                var x = ends.get(0);
+                for (var v : ends)
+                    unique &= Objects.equals(x, v);
+                System.out.println("... " + node + " unique=" + unique + " succ=" + x);
+                return unique ? x : null;
+            }
+        }
+
+        return null;
     }
 
     private static void iterateSuccessorsAndInputs(NodeFlood flood) {

@@ -96,7 +96,7 @@ public class ArrayBoundsCheckEliminationTest extends GraalCompilerTest {
         CanonicalizerPhase canonicalizer = createCanonicalizerPhase();
         CanonicalizerPhase canonicalizer2 = createCanonicalizerPhase();
         try (DebugContext.Scope scope = debug.scope("ABCETest", graph)) {
-            prepareGraph(graph, canonicalizer, context, true);
+            prepareGraph(graph, canonicalizer, context, false);
             new ArrayBoundsCheckEliminationPhase().apply(graph, context);
             canonicalizer2.apply(graph, context);
         } catch (Throwable t) {

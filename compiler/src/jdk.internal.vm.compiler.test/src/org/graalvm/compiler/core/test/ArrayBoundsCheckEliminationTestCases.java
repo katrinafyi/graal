@@ -63,9 +63,15 @@ public class ArrayBoundsCheckEliminationTestCases {
 
     public static int loop1plus5_f(int[] a) {
         int s = 0;
-        for (int i = 0; i < a.length - 5; i++) {
-            s += a[i + 5];
+        for (int i = 0; i < a.length; i++) {
+            s += a[i];
         }
+
+        if (s >= 0) {
+            s *= 2;
+        } else {
+        }
+
         return s;
     }
 
