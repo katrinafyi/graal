@@ -202,11 +202,15 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
     private EconomicMap<Node, Node> makePiMap(AnchoringNode anchor, ValueNode x, ValueNode y, LogicNode cond, boolean whichBranch) {
         var graph = cond.graph();
-        var guard = new GuardNode(cond, anchor, DeoptimizationReason.None, DeoptimizationAction.None, !whichBranch, null, null);
+        var guard = new GuardNode(cond, anchor, DeoptimizationReason.None, DeoptimizationAction.InvalidateRecompile, !whichBranch, null, null);
+        guard = graph.addOrUnique(guard);
 
-        return EconomicMap.of(
+        EconomicMap<Node, Node> em = EconomicMap.of(
                 x, graph.addOrUnique(PiNode.create(x, x.stamp(NodeView.DEFAULT), guard)),
                 y, graph.addOrUnique(PiNode.create(y, y.stamp(NodeView.DEFAULT), guard)));
+        assert !Objects.equals(x, em.get(x)) : "pi node not created for " + x;
+        assert !Objects.equals(y, em.get(y)) : "pi node not created for " + y;
+        return em;
     }
 
     private void doPiReplacements(Node node, Deque<Node> children, final Deque<EconomicMap<Node, Node>> replacements) {

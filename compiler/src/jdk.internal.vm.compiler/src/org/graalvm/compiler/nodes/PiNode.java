@@ -231,9 +231,9 @@ public class PiNode extends FloatingGuardedNode implements LIRLowerable, Virtual
         Stamp computedStamp = piStamp.improveWith(object.stamp(NodeView.DEFAULT));
 
         // The pi node does not give any additional information => skip it.
-        if (computedStamp.equals(object.stamp(NodeView.DEFAULT))) {
-            return object;
-        }
+//        if (computedStamp.equals(object.stamp(NodeView.DEFAULT))) {
+//            return object;
+//        }
 
         if (guard == null) {
             // Try to merge the pi node with a load node.
