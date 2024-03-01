@@ -28,6 +28,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.StreamSupport;
@@ -45,6 +46,7 @@ import org.graalvm.compiler.core.common.type.StampFactory;
 import org.graalvm.compiler.debug.DebugContext;
 import org.graalvm.compiler.graph.Node;
 import org.graalvm.compiler.graph.NodeFlood;
+import org.graalvm.compiler.nodeinfo.Verbosity;
 import org.graalvm.compiler.nodes.AbstractEndNode;
 import org.graalvm.compiler.nodes.ConstantNode;
 import org.graalvm.compiler.nodes.GraphState;
@@ -68,6 +70,15 @@ import org.graalvm.compiler.options.OptionType;
 import org.graalvm.compiler.phases.Phase;
 
 public class ArrayBoundsCheckEliminationPhase extends Phase {
+
+    sealed interface ESSA {
+        record Constant(long c) implements ESSA {}
+        record ArrayLength(Node array) implements ESSA {}
+        record Node(Node array) implements ESSA {}
+    }
+
+
+
 
     public static class Options {
 
@@ -111,6 +122,8 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
     private final boolean optional;
     private final boolean disabled = false;
 
+    private EconomicMap<IfNode, Pair<EconomicMap<Node, Node>, EconomicMap<Node, Node>>> piVariables = EconomicMap.create();
+
     @Override
     public Optional<NotApplicable> notApplicableTo(GraphState graphState) {
         return ALWAYS_APPLICABLE;
@@ -130,15 +143,21 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             return;
         }
 
-        var end = addPiNodes( graph.start(), new ArrayDeque<>(), EconomicSet.create());
+        var end = addPiNodes(graph.start(), new ArrayDeque<>(), EconomicSet.create());
 
         // from CE
         ControlFlowGraph cfg;
-//        cfg = ControlFlowGraph.compute(graph, true, true, true, true);
+        cfg = ControlFlowGraph.compute(graph, true, true, true, true);
+        for (var bb : cfg.getBlocks()) {
+            System.out.println(bb.toString(Verbosity.All));
+            for (var node : bb.getNodes())
+                System.out.println(node);
+        }
 //        ControlFlowGraph.RecursiveVisitor<?> visitor = createVisitor(graph, cfg, blockToNodes, nodeToBlock, context);
 //        cfg.visitDominatorTree(visitor, graph.isBeforeStage(GraphState.StageFlag.VALUE_PROXY_REMOVAL));
 
         // a weighted directed graph, with (src, tgt) as keys.
+        // (u,v) = c   <==> c + u >= v
         EconomicMap<Pair<Node, Node>, Long> essa = EconomicMap.create();
 
         // graal ir does not explicitly assign to local variables. instead, we can pretend each SSA node is an assignment
@@ -147,7 +166,6 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             // ignored:
             // vi = Aj.length
             // vi = c
-
             if (node instanceof AddNode add) {
                 long weight = -1;
                 PrimitiveConstant prim;
@@ -161,16 +179,39 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 }
                 if (other != null)
                     essa.put(Pair.create(other, node), weight);
-            } else if (node instanceof IfNode branch) {
-                var tcase = branch.trueSuccessor();
-                for (var tnode : tcase.getBlockNodes()) {
-                    // get everything bounded by the tcase
-                }
-                var fcase = branch.falseSuccessor();
+            } else if (node instanceof IfNode ifnode) {
+                var pis = piVariables.get(ifnode);
+                if (ifnode.condition() instanceof IntegerLessThanNode ltnode) {
+                    // X < Y
+                    var x = ltnode.getX();
+                    var y = ltnode.getY();
 
+                    // for both true+false, relate the pi vars to their original vars.
+                    for (var map : List.of(pis.getLeft(), pis.getRight())) {
+                        for (var v : List.of(x, y)) {
+                            essa.put(Pair.create(v, map.get(v)), -1L);
+                        }
+                    }
+
+                    var truemap = pis.getLeft();
+                    // -1 + Y >= X
+                    essa.put(Pair.create(truemap.get(y), truemap.get(x)), -1L);
+
+                    var falsemap = pis.getRight();
+                    // X >= Y
+                    essa.put(Pair.create(falsemap.get(x), falsemap.get(y)), 0L);
+                }
+            } else if (node instanceof PhiNode phinode) {
+                for (var v : phinode.values()) {
+                    essa.put(Pair.create(v, phinode), 0L);
+                }
             }
 
             System.out.println(node.getClass().toString() + " " +  node);
+        }
+
+        for (var it = essa.getEntries(); it.advance();) {
+            System.out.println(it.getKey() + " : " + it.getValue());
         }
 
         // following is from DCE
@@ -231,8 +272,10 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         // this will perform a top-down visit of the control flow tree, inserting pi nodes at branches.
         // XXX limitation: we only pi-ify precisely the operands to the < condition.
         // hopefully, the graph algorithm handles this transitively.
+        // XXX also, only when they are literally used as inputs to cfg nodes in the branches.
+
+        System.out.println("addPiNodes: " + node.toString());
         while (node != null) {
-            System.out.println("addPiNodes: " + node.toString());
             if (node instanceof AbstractEndNode end && end.merge() != null && end.merge() instanceof MergeNode) {
                 return end;
             }
@@ -246,13 +289,17 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                     var x = ltnode.getX();
                     var y = ltnode.getY();
 
-                    replacements.push(makePiMap(ifnode.trueSuccessor(), x, y, cond, true));
+                    var truemap = makePiMap(ifnode.trueSuccessor(), x, y, cond, true);
+                    replacements.push(truemap);
                     var tend = addPiNodes(ifnode.trueSuccessor(), replacements, EconomicSet.create());
                     replacements.pop();
 
-                    replacements.push(makePiMap(ifnode.falseSuccessor(), x, y, cond, false));
+                    var falsemap = makePiMap(ifnode.falseSuccessor(), x, y, cond, false);
+                    replacements.push(falsemap);
                     var fend = addPiNodes(ifnode.trueSuccessor(), replacements, EconomicSet.create());
                     replacements.pop();
+
+                    piVariables.put(ifnode, Pair.create(truemap, falsemap));
 
                     var merge1 = tend != null ? tend.merge() : null;
                     var merge2 = fend != null ? fend.merge() : null;
@@ -283,6 +330,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             }
         }
 
+        System.out.println("... bottom");
         return null;
     }
 
