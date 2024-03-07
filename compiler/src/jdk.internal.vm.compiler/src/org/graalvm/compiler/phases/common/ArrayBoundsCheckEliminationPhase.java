@@ -300,6 +300,8 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
 //        cfg.visitDominatorTree(new Visitor(), true);
 
+        assert block != null;
+
         System.out.println("addPiNodes: " + block);
         for (var node : block.getNodes()) {
             doPiReplacements(node, new ArrayDeque<>(), replacements);
@@ -309,6 +311,9 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         var nodetoblock = cfg.getNodeToBlock();
         if (endnode instanceof IfNode ifnode) {
             var cond = ifnode.condition();
+
+            AbstractMergeNode merge1, merge2;
+
             if (cond instanceof BinaryOpLogicNode binnode) {
                 System.out.println("recursing into if branches... " + ifnode);
                 var x = binnode.getX();
@@ -326,14 +331,26 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
                 piVariables.put(ifnode, Pair.create(truemap, falsemap));
 
-                var merge1 = tend;
-                var merge2 = fend;
-                assert Objects.equals(merge1, merge2) : "differing merge results " + merge1 + " | " + merge2;
-                endnode = merge1;
-//                continue;
+                merge1 = tend;
+                merge2 = fend;
             } else {
                 System.out.println("unknown if condition: " + cond.toString());
+
+                var tend = addPiNodes(nodetoblock.get(ifnode.trueSuccessor()), replacements, EconomicSet.create());
+                var fend = addPiNodes(nodetoblock.get(ifnode.trueSuccessor()), replacements, EconomicSet.create());
+
+                merge1 = tend;
+                merge2 = fend;
             }
+            assert Objects.equals(merge1, merge2) : "differing merge results " + merge1 + " | " + merge2;
+
+            if (merge1 == null) {
+                System.out.println("non-merging if statement: " + ifnode);
+                return null;
+            }
+            System.out.println("merged from if: " + ifnode);
+            return addPiNodes(nodetoblock.get(merge1), replacements, EconomicSet.create());
+
         } else if (endnode instanceof EndNode end && end.merge() != null) {
             if (end.merge() instanceof LoopBeginNode) {
                 for (int i = 0; i < block.getSuccessorCount(); i++) {
@@ -353,9 +370,6 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             System.out.println("fallthrough pi endnode: " + endnode);
             return addPiNodes(block.getFirstSuccessor(), replacements, EconomicSet.create());
         }
-
-        assert false;
-        return null;
     }
 
     private static void iterateSuccessorsAndInputs(NodeFlood flood) {
