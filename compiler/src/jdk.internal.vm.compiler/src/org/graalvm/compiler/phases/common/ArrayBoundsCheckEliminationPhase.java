@@ -63,6 +63,7 @@ import org.graalvm.compiler.nodes.cfg.ControlFlowGraph;
 import org.graalvm.compiler.nodes.cfg.HIRBlock;
 import org.graalvm.compiler.nodes.extended.AnchoringNode;
 import org.graalvm.compiler.nodes.java.ArrayLengthNode;
+import org.graalvm.compiler.nodes.java.LoadIndexedNode;
 import org.graalvm.compiler.nodes.memory.ReadNode;
 import org.graalvm.compiler.options.Option;
 import org.graalvm.compiler.options.OptionKey;
@@ -186,7 +187,8 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                     essa.put(Pair.create(other, node), weight);
             } else if (node instanceof IfNode ifnode) {
                 var pis = piVariables.get(ifnode);
-                if (pis != null && ifnode.condition() instanceof IntegerLessThanNode ltnode) {
+                assert pis != null : "pi variables missing for ifnode: " + ifnode;
+                if (ifnode.condition() instanceof IntegerLessThanNode ltnode) {
                     // X < Y
                     var x = ltnode.getX();
                     var y = ltnode.getY();
@@ -304,6 +306,10 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
         System.out.println("addPiNodes: " + block);
         for (var node : block.getNodes()) {
+            if (node instanceof LoadIndexedNode load) {
+
+
+            }
             doPiReplacements(node, new ArrayDeque<>(), replacements);
         }
 
@@ -326,7 +332,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
                 var falsemap = makePiMap(ifnode.falseSuccessor(), x, y, cond, false);
                 replacements.push(falsemap);
-                var fend = addPiNodes(nodetoblock.get(ifnode.trueSuccessor()), replacements, EconomicSet.create());
+                var fend = addPiNodes(nodetoblock.get(ifnode.falseSuccessor()), replacements, EconomicSet.create());
                 replacements.pop();
 
                 piVariables.put(ifnode, Pair.create(truemap, falsemap));
@@ -336,9 +342,11 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             } else {
                 System.out.println("unknown if condition: " + cond.toString());
 
+
                 var tend = addPiNodes(nodetoblock.get(ifnode.trueSuccessor()), replacements, EconomicSet.create());
                 var fend = addPiNodes(nodetoblock.get(ifnode.trueSuccessor()), replacements, EconomicSet.create());
 
+                piVariables.put(ifnode, Pair.create(EconomicMap.create(), EconomicMap.create()));
                 merge1 = tend;
                 merge2 = fend;
             }
@@ -365,8 +373,10 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         } else if (endnode instanceof LoopEndNode) {
             // a loop end is the end of a loop's inner block. both cases are considered at the loop entry, do not recurse.
             return null;
+        } else if (endnode instanceof ReturnNode) {
+            return null;
         } else {
-            assert block.getSuccessorCount() == 1 : "too many successors at: " + block;
+            assert block.getSuccessorCount() == 1 : "num successors != 1 at: " + block;
             System.out.println("fallthrough pi endnode: " + endnode);
             return addPiNodes(block.getFirstSuccessor(), replacements, EconomicSet.create());
         }
