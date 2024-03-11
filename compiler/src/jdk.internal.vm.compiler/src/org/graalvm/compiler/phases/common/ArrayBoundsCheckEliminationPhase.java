@@ -28,21 +28,17 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
-import jdk.vm.ci.meta.Constant;
 import jdk.vm.ci.meta.DeoptimizationAction;
 import jdk.vm.ci.meta.DeoptimizationReason;
-import jdk.vm.ci.meta.JavaConstant;
 import jdk.vm.ci.meta.PrimitiveConstant;
 import org.graalvm.collections.EconomicMap;
 import org.graalvm.collections.EconomicSet;
-import org.graalvm.collections.Equivalence;
 import org.graalvm.collections.Pair;
-import org.graalvm.compiler.core.common.type.StampFactory;
 import org.graalvm.compiler.debug.DebugContext;
 import org.graalvm.compiler.graph.Node;
 import org.graalvm.compiler.graph.NodeFlood;
@@ -52,19 +48,14 @@ import org.graalvm.compiler.nodes.ConstantNode;
 import org.graalvm.compiler.nodes.GraphState;
 import org.graalvm.compiler.nodes.GuardNode;
 import org.graalvm.compiler.nodes.*;
-import org.graalvm.compiler.nodes.NamedLocationIdentity;
 import org.graalvm.compiler.nodes.NodeView;
 import org.graalvm.compiler.nodes.StructuredGraph;
 import org.graalvm.compiler.nodes.calc.AddNode;
-import org.graalvm.compiler.nodes.calc.ConditionalNode;
 import org.graalvm.compiler.nodes.calc.IntegerLessThanNode;
-import org.graalvm.compiler.nodes.calc.NotNode;
 import org.graalvm.compiler.nodes.cfg.ControlFlowGraph;
 import org.graalvm.compiler.nodes.cfg.HIRBlock;
 import org.graalvm.compiler.nodes.extended.AnchoringNode;
-import org.graalvm.compiler.nodes.java.ArrayLengthNode;
 import org.graalvm.compiler.nodes.java.LoadIndexedNode;
-import org.graalvm.compiler.nodes.memory.ReadNode;
 import org.graalvm.compiler.options.Option;
 import org.graalvm.compiler.options.OptionKey;
 import org.graalvm.compiler.options.OptionType;
@@ -125,6 +116,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
     private ControlFlowGraph cfg;
     private final EconomicMap<IfNode, Pair<EconomicMap<Node, Node>, EconomicMap<Node, Node>>> piVariables = EconomicMap.create();
+    private final EconomicMap<Node, PiContext> piContexts = EconomicMap.create();
 
     @Override
     public Optional<NotApplicable> notApplicableTo(GraphState graphState) {
@@ -187,6 +179,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                     essa.put(Pair.create(other, node), weight);
             } else if (node instanceof IfNode ifnode) {
                 var pis = piVariables.get(ifnode);
+                if (pis == null) continue;
                 assert pis != null : "pi variables missing for ifnode: " + ifnode;
                 if (ifnode.condition() instanceof IntegerLessThanNode ltnode) {
                     // X < Y
@@ -248,7 +241,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         deleteNodes(flood, graph);
     }
 
-    private EconomicMap<Node, Node> makePiMap(AnchoringNode anchor, ValueNode x, ValueNode y, LogicNode cond, boolean whichBranch) {
+    private PiContext makePiMap(FixedNode begin, AnchoringNode anchor, ValueNode x, ValueNode y, LogicNode cond, boolean whichBranch) {
         var graph = cond.graph();
         var guard = new GuardNode(cond, anchor, DeoptimizationReason.None, DeoptimizationAction.InvalidateRecompile, !whichBranch, null, null);
         guard = graph.addOrUnique(guard);
@@ -258,16 +251,27 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 y, graph.addOrUnique(PiNode.create(y, y.stamp(NodeView.DEFAULT), guard)));
         assert !Objects.equals(x, em.get(x)) : "pi node not created for " + x;
         assert !Objects.equals(y, em.get(y)) : "pi node not created for " + y;
-        return em;
+        return new PiContext(begin, em);
     }
 
-    private void doPiReplacements(Node node, Deque<Node> children, final Deque<EconomicMap<Node, Node>> replacements) {
+    private static class PiContext {
+        public final EconomicMap<Node, Node> replacements;
+        public final FixedNode begin;
+        public final EconomicSet<HIRBlock> blocks = EconomicSet.create();
+
+        private PiContext(FixedNode begin, EconomicMap<Node, Node> replacements) {
+            this.begin = begin;
+            this.replacements = replacements;
+        }
+    }
+
+    private void doPiReplacements(Node node, Deque<Node> children, final Deque<PiContext> replacements) {
 
         for (var inp : node.inputs()) {
             Node repl = null;
             for (var em : replacements) {
                 if (repl != null) break;
-                repl = em.get(inp);
+                repl = em.replacements.get(inp);
             }
 
             if (repl != null)
@@ -292,9 +296,9 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         public void exit(HIRBlock b, Integer value) {
             System.out.println("exit " + value);
         }
-    };
+    }
 
-    private AbstractMergeNode addPiNodes(HIRBlock block, final Deque<EconomicMap<Node, Node>> replacements, final EconomicSet<Node> seen) {
+    private AbstractMergeNode addPiNodes(HIRBlock block, final Deque<PiContext> replacements, final EconomicSet<Node> seen) {
         // this will perform a top-down visit of the control flow tree, inserting pi nodes at branches.
         // XXX limitation: we only pi-ify precisely the operands to the < condition.
         // hopefully, the graph algorithm handles this transitively.
@@ -303,6 +307,16 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 //        cfg.visitDominatorTree(new Visitor(), true);
 
         assert block != null;
+
+        if (block.getBeginNode() instanceof LoopExitNode) {
+            // handled at loop begin node, do not recurse.
+            return null;
+        }
+
+        // mark this block in all currently active pi contexts.
+        for (var ctx : replacements) {
+            ctx.blocks.add(block);
+        }
 
         System.out.println("addPiNodes: " + block);
         for (var node : block.getNodes()) {
@@ -320,37 +334,43 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
             AbstractMergeNode merge1, merge2;
 
+            AbstractBeginNode truesucc = ifnode.trueSuccessor();
+            AbstractBeginNode falsesucc = ifnode.falseSuccessor();
             if (cond instanceof BinaryOpLogicNode binnode) {
                 System.out.println("recursing into if branches... " + ifnode);
                 var x = binnode.getX();
                 var y = binnode.getY();
 
-                var truemap = makePiMap(ifnode.trueSuccessor(), x, y, cond, true);
-                replacements.push(truemap);
-                var tend = addPiNodes(nodetoblock.get(ifnode.trueSuccessor()), replacements, EconomicSet.create());
-                replacements.pop();
+                PiContext pi;
+                AbstractMergeNode tend, fend;
 
-                var falsemap = makePiMap(ifnode.falseSuccessor(), x, y, cond, false);
-                replacements.push(falsemap);
-                var fend = addPiNodes(nodetoblock.get(ifnode.falseSuccessor()), replacements, EconomicSet.create());
-                replacements.pop();
+                pi = makePiMap(truesucc, truesucc, x, y, cond, true);
+                replacements.push(pi);
+                tend = addPiNodes(nodetoblock.get(truesucc), replacements, EconomicSet.create());
+                pi = replacements.pop();
+                piContexts.put(pi.begin, pi);
 
-                piVariables.put(ifnode, Pair.create(truemap, falsemap));
+                pi = makePiMap(falsesucc, falsesucc, x, y, cond, false);
+                replacements.push(pi);
+                fend = addPiNodes(nodetoblock.get(falsesucc), replacements, EconomicSet.create());
+                pi = replacements.pop();
+                piContexts.put(pi.begin, pi);
 
                 merge1 = tend;
                 merge2 = fend;
             } else {
                 System.out.println("unknown if condition: " + cond.toString());
 
+                var tend = addPiNodes(nodetoblock.get(truesucc), replacements, EconomicSet.create());
+                var fend = addPiNodes(nodetoblock.get(falsesucc), replacements, EconomicSet.create());
 
-                var tend = addPiNodes(nodetoblock.get(ifnode.trueSuccessor()), replacements, EconomicSet.create());
-                var fend = addPiNodes(nodetoblock.get(ifnode.trueSuccessor()), replacements, EconomicSet.create());
+//                piContexts.put(truesucc, new PiContext(truesucc, EconomicMap.create()));
+//                piContexts.put(falsesucc, new PiContext(falsesucc, EconomicMap.create()));
 
-                piVariables.put(ifnode, Pair.create(EconomicMap.create(), EconomicMap.create()));
                 merge1 = tend;
                 merge2 = fend;
             }
-            assert Objects.equals(merge1, merge2) : "differing merge results " + merge1 + " | " + merge2;
+            assert Objects.equals(merge1, merge2) : "differing merge results from " + ifnode + " : " + merge1 + " | " + merge2;
 
             if (merge1 == null) {
                 System.out.println("non-merging if statement: " + ifnode);
@@ -359,22 +379,32 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             System.out.println("merged from if: " + ifnode);
             return addPiNodes(nodetoblock.get(merge1), replacements, EconomicSet.create());
 
-        } else if (endnode instanceof EndNode end && end.merge() != null) {
-            if (end.merge() instanceof LoopBeginNode) {
-                for (int i = 0; i < block.getSuccessorCount(); i++) {
-                    addPiNodes(block.getSuccessorAt(i), replacements, EconomicSet.create());
-                }
-                return null;
-            } else {
-                // at a merge point which is not a loop head. this is probably an if node join?
-                // return control to caller and do not recurse.
-                return end.merge();
-            }
         } else if (endnode instanceof LoopEndNode) {
             // a loop end is the end of a loop's inner block. both cases are considered at the loop entry, do not recurse.
             return null;
         } else if (endnode instanceof ReturnNode) {
             return null;
+
+        } else if (endnode instanceof EndNode end && end.merge() != null) {
+            if (end.merge() instanceof LoopBeginNode loopbegin) {
+                AbstractMergeNode merge = null;
+                for (var x : loopbegin.cfgSuccessors()) {
+                    addPiNodes(nodetoblock.get(x), replacements, EconomicSet.create());
+                }
+                for (var x : loopbegin.loopExits()) {
+                    // assert that loop exit blocks are immediately merged. if so, return their common merge point.
+                    var b = nodetoblock.get(x);
+                    assert b.getEndNode().predecessor().equals(b.getBeginNode()) : "loop has non-trivial exit merge at " + b.getBeginNode();
+                    var m = ((EndNode) b.getEndNode()).merge();
+                    merge = merge == null ? m : merge;
+                    assert Objects.equals(merge, m) : "loop exit merges differ! at " + loopbegin;
+                }
+                return merge;
+            } else {
+                // at a merge point which is not a loop head. this is probably an if node join?
+                // return control to caller and do not recurse.
+                return end.merge();
+            }
         } else {
             assert block.getSuccessorCount() == 1 : "num successors != 1 at: " + block;
             System.out.println("fallthrough pi endnode: " + endnode);
