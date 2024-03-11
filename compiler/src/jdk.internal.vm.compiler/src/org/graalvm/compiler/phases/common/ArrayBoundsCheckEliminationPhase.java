@@ -115,7 +115,6 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
     private final boolean disabled = false;
 
     private ControlFlowGraph cfg;
-    private final EconomicMap<IfNode, Pair<EconomicMap<Node, Node>, EconomicMap<Node, Node>>> piVariables = EconomicMap.create();
     private final EconomicMap<Node, PiContext> piContexts = EconomicMap.create();
 
     @Override
@@ -178,26 +177,25 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 if (other != null)
                     essa.put(Pair.create(other, node), weight);
             } else if (node instanceof IfNode ifnode) {
-                var pis = piVariables.get(ifnode);
-                if (pis == null) continue;
-                assert pis != null : "pi variables missing for ifnode: " + ifnode;
+                var tpi = piContexts.get(ifnode.trueSuccessor());
+                var fpi = piContexts.get(ifnode.falseSuccessor());
+                var truemap = tpi.replacements;
+                var falsemap = fpi.replacements;
                 if (ifnode.condition() instanceof IntegerLessThanNode ltnode) {
                     // X < Y
                     var x = ltnode.getX();
                     var y = ltnode.getY();
 
                     // for both true+false, relate the pi vars to their original vars.
-                    for (var map : List.of(pis.getLeft(), pis.getRight())) {
+                    for (var map : List.of(truemap, falsemap)) {
                         for (var v : List.of(x, y)) {
                             essa.put(Pair.create(v, map.get(v)), -1L);
                         }
                     }
 
-                    var truemap = pis.getLeft();
                     // -1 + Y >= X
                     essa.put(Pair.create(truemap.get(y), truemap.get(x)), -1L);
 
-                    var falsemap = pis.getRight();
                     // X >= Y
                     essa.put(Pair.create(falsemap.get(x), falsemap.get(y)), 0L);
                 }
@@ -364,8 +362,8 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 var tend = addPiNodes(nodetoblock.get(truesucc), replacements, EconomicSet.create());
                 var fend = addPiNodes(nodetoblock.get(falsesucc), replacements, EconomicSet.create());
 
-//                piContexts.put(truesucc, new PiContext(truesucc, EconomicMap.create()));
-//                piContexts.put(falsesucc, new PiContext(falsesucc, EconomicMap.create()));
+                piContexts.put(truesucc, new PiContext(truesucc, EconomicMap.create()));
+                piContexts.put(falsesucc, new PiContext(falsesucc, EconomicMap.create()));
 
                 merge1 = tend;
                 merge2 = fend;
@@ -399,7 +397,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                     merge = merge == null ? m : merge;
                     assert Objects.equals(merge, m) : "loop exit merges differ! at " + loopbegin;
                 }
-                return merge;
+                return addPiNodes(nodetoblock.get(merge), replacements, EconomicSet.create());
             } else {
                 // at a merge point which is not a loop head. this is probably an if node join?
                 // return control to caller and do not recurse.
