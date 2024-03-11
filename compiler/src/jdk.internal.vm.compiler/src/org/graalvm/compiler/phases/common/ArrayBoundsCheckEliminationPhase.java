@@ -51,10 +51,12 @@ import org.graalvm.compiler.nodes.*;
 import org.graalvm.compiler.nodes.NodeView;
 import org.graalvm.compiler.nodes.StructuredGraph;
 import org.graalvm.compiler.nodes.calc.AddNode;
+import org.graalvm.compiler.nodes.calc.IntegerBelowNode;
 import org.graalvm.compiler.nodes.calc.IntegerLessThanNode;
 import org.graalvm.compiler.nodes.cfg.ControlFlowGraph;
 import org.graalvm.compiler.nodes.cfg.HIRBlock;
 import org.graalvm.compiler.nodes.extended.AnchoringNode;
+import org.graalvm.compiler.nodes.java.ArrayLengthNode;
 import org.graalvm.compiler.nodes.java.LoadIndexedNode;
 import org.graalvm.compiler.options.Option;
 import org.graalvm.compiler.options.OptionKey;
@@ -254,7 +256,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
     private static class PiContext {
         public final EconomicMap<Node, Node> replacements;
-        public final FixedNode begin;
+        public final FixedNode begin; // exclusive!
         public final EconomicSet<HIRBlock> blocks = EconomicSet.create();
 
         private PiContext(FixedNode begin, EconomicMap<Node, Node> replacements) {
@@ -267,9 +269,10 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
         for (var inp : node.inputs()) {
             Node repl = null;
-            for (var em : replacements) {
-                if (repl != null) break;
-                repl = em.replacements.get(inp);
+            var it = replacements.descendingIterator();
+            while (it.hasNext() && repl == null) {
+                var em = it.next().replacements;
+                repl = em.get(inp);
             }
 
             if (repl != null)
@@ -316,13 +319,23 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             ctx.blocks.add(block);
         }
 
+        var graph = block.getBeginNode().graph();
+
         System.out.println("addPiNodes: " + block);
         for (var node : block.getNodes()) {
-            if (node instanceof LoadIndexedNode load) {
-
-
-            }
             doPiReplacements(node, new ArrayDeque<>(), replacements);
+
+            if (node instanceof LoadIndexedNode load) {
+                var cond = new IntegerLessThanNode(ConstantNode.forInt(-1), load.index());
+                cond = graph.addOrUniqueWithInputs(cond);
+                var guard = new GuardNode(cond, block.getBeginNode(), DeoptimizationReason.None, DeoptimizationAction.InvalidateRecompile, false, null, null);
+                guard = graph.addOrUniqueWithInputs(guard);
+                var pi = graph.addOrUnique(PiNode.create(load.index(), load.index().stamp(NodeView.DEFAULT), guard));
+
+                var context = new PiContext(load, EconomicMap.of(load.index(), pi));
+                context.blocks.add(block);
+                replacements.add(context);
+            }
         }
 
         var endnode = block.getEndNode();
@@ -346,12 +359,15 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 replacements.push(pi);
                 tend = addPiNodes(nodetoblock.get(truesucc), replacements, EconomicSet.create());
                 pi = replacements.pop();
+                while (!pi.begin.equals(truesucc)) pi = replacements.pop();
                 piContexts.put(pi.begin, pi);
+                // pop multiple contexts since array accesses may have inserted pi variables too.
 
                 pi = makePiMap(falsesucc, falsesucc, x, y, cond, false);
                 replacements.push(pi);
                 fend = addPiNodes(nodetoblock.get(falsesucc), replacements, EconomicSet.create());
                 pi = replacements.pop();
+                while (!pi.begin.equals(falsesucc)) pi = replacements.pop();
                 piContexts.put(pi.begin, pi);
 
                 merge1 = tend;
