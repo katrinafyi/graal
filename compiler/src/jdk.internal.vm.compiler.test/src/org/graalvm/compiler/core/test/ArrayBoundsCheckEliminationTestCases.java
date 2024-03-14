@@ -66,6 +66,8 @@ public class ArrayBoundsCheckEliminationTestCases {
         for (int i = 0; i < a.length; i++) {
             s += a[i];
             s += a[i];
+            s += a[i+1];
+            s += a[i+1];
             if (i == 100)
                 break;
         }
