@@ -326,8 +326,21 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             doPiReplacements(node, new ArrayDeque<>(), replacements);
 
             if (node instanceof LoadIndexedNode load) {
-                var cond = new IntegerLessThanNode(ConstantNode.forInt(-1), load.index());
-                cond = graph.addOrUniqueWithInputs(cond);
+                // before:
+                // load
+                // succ
+
+                // after:
+                // load
+                // length
+                // succ
+
+                var succ = load.successors().first();
+                var length = graph.addOrUnique(new ArrayLengthNode(load.array()));
+                succ.replaceAtPredecessor(length); // performs load -> length edge
+                length.replaceFirstSuccessor(null, succ); // length -> succ
+
+                var cond = graph.addOrUnique(new IntegerBelowNode(load.index(), length));
                 var guard = new GuardNode(cond, block.getBeginNode(), DeoptimizationReason.None, DeoptimizationAction.InvalidateRecompile, false, null, null);
                 guard = graph.addOrUniqueWithInputs(guard);
                 var pi = graph.addOrUnique(PiNode.create(load.index(), load.index().stamp(NodeView.DEFAULT), guard));
