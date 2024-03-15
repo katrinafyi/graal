@@ -63,18 +63,8 @@ public class ArrayBoundsCheckEliminationTestCases {
 
     public static int loop1plus5_f(int[] a) {
         int s = 0;
-        for (int i = 0; i < a.length; i++) {
-            s += a[i];
-            s += a[i];
-            s += a[i+1];
-            s += a[i+1];
-            if (i == 100)
-                break;
-        }
-
-        if (s >= 0) {
-            s *= 2;
-        } else {
+        for (int i = 0; i < a.length - 5; i++) {
+            s += a[i + 5];
         }
 
         return s;
@@ -262,6 +252,33 @@ public class ArrayBoundsCheckEliminationTestCases {
             }
         }
         return s;
+    }
+
+    public static int bubblesort(int[] a) {
+        var limit = a.length;
+        var st = -1;
+        var s = 0;
+        while (st < limit) {
+            st++;
+            limit--;
+            for (var j = st; j < limit; j++) {
+                if (a[j] > a[j+1]) {
+                    s += 1;
+//                    var tmp = a[j];
+//                    a[j] = a[j+1];
+//                    a[j+1] = tmp;
+                }
+            }
+
+//            for (var j = limit; --j >= st; ) {
+//                if (a[j] > a[j+1]) {
+//                    var tmp = a[j];
+//                    a[j] = a[j+1];
+//                    a[j+1] = tmp;
+//                }
+//            }
+        }
+        return 0;
     }
 
     public static void main(String[] args) throws InvocationTargetException, IllegalAccessException {

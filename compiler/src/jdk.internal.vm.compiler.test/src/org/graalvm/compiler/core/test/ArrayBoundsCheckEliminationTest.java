@@ -17,6 +17,8 @@ import org.graalvm.compiler.nodes.extended.BytecodeExceptionNode;
 import org.graalvm.compiler.nodes.spi.CoreProviders;
 import org.graalvm.compiler.phases.common.ArrayBoundsCheckEliminationPhase;
 import org.graalvm.compiler.phases.common.CanonicalizerPhase;
+import org.graalvm.compiler.phases.common.ConditionalEliminationPhase;
+import org.graalvm.compiler.phases.common.DeadCodeEliminationPhase;
 import org.graalvm.compiler.phases.common.FloatingReadPhase;
 import org.graalvm.compiler.phases.common.GuardLoweringPhase;
 import org.graalvm.compiler.phases.common.HighTierLoweringPhase;
@@ -60,6 +62,7 @@ public class ArrayBoundsCheckEliminationTest extends GraalCompilerTest {
             "loop2sumplus5_f", // 24
             "loop2addmul_p", // 25
             "loop2addmul_f", // 26
+            "bubblesort", // 27
     };
     class Tier extends BaseTier<CoreProviders> {
         public Tier() {
@@ -99,6 +102,8 @@ public class ArrayBoundsCheckEliminationTest extends GraalCompilerTest {
             prepareGraph(graph, canonicalizer, context, false);
             new ArrayBoundsCheckEliminationPhase().apply(graph, context);
             canonicalizer2.apply(graph, context);
+            new ConditionalEliminationPhase(false).apply(graph, context);
+            new DeadCodeEliminationPhase().apply(graph, context);
         } catch (Throwable t) {
             debug.handle(t);
         }
@@ -158,7 +163,7 @@ public class ArrayBoundsCheckEliminationTest extends GraalCompilerTest {
 //    @Test public void test5() { test(5); }
 //    @Test public void test6() { test(6); }
 //    @Test public void test7() { test(7); }
-    @Test public void test8() { test(8); }
+//    @Test public void test8() { test(8); }
 //    @Test public void test9() { test(9); }
 //    @Test public void test10() { test(10); }
 //    @Test public void test11() { test(11); }
@@ -177,5 +182,6 @@ public class ArrayBoundsCheckEliminationTest extends GraalCompilerTest {
 //    @Test public void test24() { test(24); }
 //    @Test public void test25() { test(25); }
 //    @Test public void test26() { test(26); }
+    @Test public void test27() { test(27); }
 
 }

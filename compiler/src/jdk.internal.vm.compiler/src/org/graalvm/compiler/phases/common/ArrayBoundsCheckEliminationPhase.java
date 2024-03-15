@@ -119,6 +119,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
     private ControlFlowGraph cfg;
     private final EconomicMap<Node, PiContext> piContexts = EconomicMap.create();
+    private NodeMap<ArrayLengthNode> canonicalLengths;
 
     @Override
     public Optional<NotApplicable> notApplicableTo(GraphState graphState) {
@@ -161,6 +162,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         // (u,v) = c   <==> c + u >= v
         EconomicMap<Pair<Node, Node>, Long> essa = EconomicMap.create();
 
+        canonicalLengths = new NodeMap<>(graph);
         // graal ir does not explicitly assign to local variables. instead, we can pretend each SSA node is an assignment
         // to a variable called itself.
         for (Node node : graph.getNodes()) {
@@ -203,6 +205,14 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                     // X >= Y
                     essa.put(Pair.create(falsemap.get(x), falsemap.get(y)), 0L);
                 }
+            } else if (node instanceof final ArrayLengthNode lengthnode) {
+                var canonlen = canonicalLengths.get(lengthnode.array());
+                if (canonlen == null) {
+                    canonicalLengths.put(lengthnode.array(), lengthnode);
+                    canonlen = lengthnode;
+                }
+                essa.put(Pair.create(canonlen, lengthnode), 0L);
+
             } else if (node instanceof PhiNode phinode) {
                 for (var v : phinode.values()) {
                     essa.put(Pair.create(v, phinode), 0L);
@@ -212,9 +222,11 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             System.out.println(node.getClass().toString() + " " +  node);
         }
 
+        System.out.println("DOT! digraph G {");
         for (var it = essa.getEntries(); it.advance();) {
-            System.out.println(it.getKey() + " : " + it.getValue());
+            System.out.printf("DOT! \"%s\" -> \"%s\" [ label=\"%d\" ];%n", it.getKey().getLeft(), it.getKey().getRight(), it.getValue());
         }
+        System.out.println("DOT! }");
 
         // following is from DCE
         NodeFlood flood = graph.createNodeFlood();
@@ -279,8 +291,10 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 repl = em.get(inp);
             }
 
-            if (repl != null)
+            if (repl != null) {
+                System.out.println("replacing! input of " + node + ". old: " + inp + ", new: " + repl);
                 node.replaceAllInputs(inp, repl);
+            }
         }
     }
 
@@ -313,9 +327,10 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
         assert block != null;
 
-        if (block.getBeginNode() instanceof LoopExitNode) {
-            // handled at loop begin node, do not recurse.
-            return null;
+        if (block.getBeginNode() instanceof LoopExitNode exitnode) {
+            // multiple-exit loops are handled at the loop begin node, do not recurse.
+            if (exitnode.loopBegin().loopExits().count() > 1)
+                return null;
         }
 
         // mark this block in all currently active pi contexts.
@@ -386,18 +401,24 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
                 pi = makePiMap(truesucc, truesucc, x, y, cond, true);
                 replacements.push(pi);
+                System.out.println(" begin tcase: " + truesucc);
                 tend = addPiNodes(nodetoblock.get(truesucc), replacements);
+                System.out.println(" end tcase: " + truesucc);
                 pi = replacements.pop();
                 while (!pi.begin.equals(truesucc)) pi = replacements.pop();
                 piContexts.put(pi.begin, pi);
+                System.out.println("piContexts: " + pi.begin + " --> " + pi);
                 // pop multiple contexts since array accesses may have inserted pi variables too.
 
                 pi = makePiMap(falsesucc, falsesucc, x, y, cond, false);
                 replacements.push(pi);
+                System.out.println(" begin fcase: " + falsesucc);
                 fend = addPiNodes(nodetoblock.get(falsesucc), replacements);
+                System.out.println(" end fcase: " + falsesucc);
                 pi = replacements.pop();
                 while (!pi.begin.equals(falsesucc)) pi = replacements.pop();
                 piContexts.put(pi.begin, pi);
+                System.out.println("piContexts: " + pi.begin + " --> " + pi);
 
                 merge1 = tend;
                 merge2 = fend;
@@ -430,15 +451,24 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
         } else if (endnode instanceof EndNode end && end.merge() != null) {
             if (end.merge() instanceof LoopBeginNode loopbegin) {
+                System.out.println("handling loop: " + loopbegin);
                 AbstractMergeNode merge = null;
                 for (var x : loopbegin.cfgSuccessors()) {
+                    System.out.println(" ... loop cfg succ: " + x);
                     addPiNodes(nodetoblock.get(x), replacements);
                 }
+                if (loopbegin.loopExits().count() == 1) {
+                    System.out.println(" ... sole loop exit: " + loopbegin.loopExits().first());
+                    // only one exit. no merge, so proceed to block after loop.
+                    return addPiNodes(nodetoblock.get(loopbegin.loopExits().first()), replacements);
+                }
+                // multiple loop exits. ensure they all merge to the same point then visit their merge block.
                 for (var x : loopbegin.loopExits()) {
+                    System.out.println(" ... loop exit: " + x);
                     // assert that loop exit blocks are immediately merged. if so, return their common merge point.
                     var b = nodetoblock.get(x);
                     assert b.getEndNode().predecessor().equals(b.getBeginNode()) : "loop has non-trivial exit merge at " + b.getBeginNode();
-                    var m = ((EndNode) b.getEndNode()).merge();
+                    var m = ((AbstractEndNode) b.getEndNode()).merge();
                     merge = merge == null ? m : merge;
                     assert Objects.equals(merge, m) : "loop exit merges differ! at " + loopbegin;
                 }
