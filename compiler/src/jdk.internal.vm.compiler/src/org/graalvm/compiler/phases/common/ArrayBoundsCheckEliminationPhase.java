@@ -159,7 +159,8 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 //        cfg.visitDominatorTree(visitor, graph.isBeforeStage(GraphState.StageFlag.VALUE_PROXY_REMOVAL));
 
         // a weighted directed graph, with (src, tgt) as keys.
-        // (u,v) = c   <==> c + u >= v
+        // (u,v) = c   <==>   v - u <= c  <==> c + u >= v
+        // i.e., the weight bounds the numerical difference between the target and destination nodes.
         EconomicMap<Pair<Node, Node>, Long> essa = EconomicMap.create();
 
         canonicalLengths = new NodeMap<>(graph);
@@ -195,14 +196,14 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                     // for both true+false, relate the pi vars to their original vars.
                     for (var map : List.of(truemap, falsemap)) {
                         for (var v : List.of(x, y)) {
-                            essa.put(Pair.create(v, map.get(v)), -1L);
+                            essa.put(Pair.create(v, map.get(v)), 0L);
                         }
                     }
 
-                    // -1 + Y >= X
+                    // pi(X) < pi(Y)  <==> pi(X) - pi(Y) <= - 1
                     essa.put(Pair.create(truemap.get(y), truemap.get(x)), -1L);
 
-                    // X >= Y
+                    // X >= Y  <==> pi(Y) - pi(X) <= 0
                     essa.put(Pair.create(falsemap.get(x), falsemap.get(y)), 0L);
                 }
             } else if (node instanceof final ArrayLengthNode lengthnode) {
