@@ -271,6 +271,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
     private static class PiContext {
         public final EconomicMap<Node, Node> replacements;
+        // a mapping of array nodes to their length nodes. used when constructing pi nodes after array-accesses.
         public final NodeMap<ArrayLengthNode> lengthNodes;
         public final FixedNode begin; // exclusive!
         public final EconomicSet<HIRBlock> blocks = EconomicSet.create();
@@ -282,40 +283,54 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         }
     }
 
-    private void doPiReplacements(Node node, Deque<Node> children, final Deque<PiContext> replacements) {
+    private void doPiReplacements(ControlFlowGraph cfg, PiContext context) {
 
-        for (var inp : node.inputs()) {
-            Node repl = null;
-            var it = replacements.descendingIterator();
-            while (it.hasNext() && repl == null) {
-                var em = it.next().replacements;
-                repl = em.get(inp);
-            }
+        final var beginBlock = cfg.getNodeToBlock().get(context.begin);
 
-            if (repl != null) {
-                System.out.println("replacing! input of " + node + ". old: " + inp + ", new: " + repl);
-                node.replaceAllInputs(inp, repl);
-            }
-        }
-    }
-
-    private static class Visitor implements ControlFlowGraph.RecursiveVisitor<Integer> {
-//        private final Deque<Pair<EconomicSet<Node>, EconomicSet<E>>> = new ArrayDeque<>();
-        private int i = 0;
-        @Override
-        public Integer enter(HIRBlock b) {
-            if (b.getEndNode() instanceof IfNode ifnode) {
-//                merges.add(ifnode.get)
-            }
-
-            System.out.println("enter " + i);
-            return i++;
+        NodeFlood flood = context.begin.graph().createNodeFlood();
+        flood.add(context.begin);
+        {
+            var it = beginBlock.getNodes().iterator();
+            //noinspection StatementWithEmptyBody
+            while (!Objects.equals(it.next(), context.begin));
+            while (it.hasNext()) flood.add(it.next());
         }
 
-        @Override
-        public void exit(HIRBlock b, Integer value) {
-            System.out.println("exit " + value);
+        for (var block : context.blocks) {
+            if (Objects.equals(block, beginBlock)) continue;
+            for (var node : block.getNodes()) {
+                flood.add(node);
+            }
         }
+
+        for (var node : flood) {
+            flood.addAll(node.inputs());
+        }
+
+        // at this point, we have constructed a 'cone' of all input dependencies within this Pi variable's range.
+        // now, we can take each pi-ed variable and check which of its uses appear within this cone.
+
+        // actually, maybe we can avoid this... it would be much easier if we constructed the pi-nodes "on-demand"
+        // based on the location of the bounds-check we aim to eliminate. this can be done by simple substitutions on the graph.
+        // moreover, this is safe (?) because SSA variables have a fixed value and this will only be used for a single substitution
+        // at a single point. maybe less efficient.
+
+        for (var it = context.replacements.getEntries(); it.advance(); ) {
+            var orig = it.getKey();
+            var pi = it.getValue();
+
+            for (var user : orig.usages()) {
+
+
+            }
+
+
+
+
+
+        }
+
+
     }
 
     private AbstractMergeNode addPiNodes(HIRBlock block, final Deque<PiContext> replacements) {
