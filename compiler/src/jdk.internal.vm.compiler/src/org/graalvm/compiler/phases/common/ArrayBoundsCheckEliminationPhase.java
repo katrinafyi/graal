@@ -25,13 +25,11 @@
 package org.graalvm.compiler.phases.common;
 
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
+import java.util.TreeMap;
 
 import jdk.vm.ci.meta.DeoptimizationAction;
 import jdk.vm.ci.meta.DeoptimizationReason;
@@ -162,6 +160,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         // (u,v) = c   <==>   v - u <= c  <==> c + u >= v
         // i.e., the weight bounds the numerical difference between the target and destination nodes.
         EconomicMap<Pair<Node, Node>, Long> essa = EconomicMap.create();
+        EconomicSet<PhiNode> phis = EconomicSet.create();
 
         canonicalLengths = new NodeMap<>(graph);
         // graal ir does not explicitly assign to local variables. instead, we can pretend each SSA node is an assignment
@@ -194,17 +193,19 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                     var y = ltnode.getY();
 
                     // for both true+false, relate the pi vars to their original vars.
-                    for (var map : List.of(truemap, falsemap)) {
-                        for (var v : List.of(x, y)) {
-                            essa.put(Pair.create(v, map.get(v)), 0L);
-                        }
-                    }
+//                    for (var map : List.of(truemap, falsemap)) {
+//                        for (var v : List.of(x, y)) {
+//                            essa.put(Pair.create(v, map.get(v)), 0L);
+//                        }
+//                    }
 
                     // pi(X) < pi(Y)  <==> pi(X) - pi(Y) <= - 1
-                    essa.put(Pair.create(truemap.get(y), truemap.get(x)), -1L);
+                    tpi.overlay.put(Pair.create((y), (x)), -1L);
 
                     // X >= Y  <==> pi(Y) - pi(X) <= 0
-                    essa.put(Pair.create(falsemap.get(x), falsemap.get(y)), 0L);
+//                    essa.put(Pair.create(falsemap.get(x), falsemap.get(y)), 0L);
+                    //noinspection SuspiciousNameCombination
+                    fpi.overlay.put(Pair.create(x, y), 0L);
                 }
             } else if (node instanceof final ArrayLengthNode lengthnode) {
                 var canonlen = canonicalLengths.get(lengthnode.array());
@@ -215,9 +216,15 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 essa.put(Pair.create(canonlen, lengthnode), 0L);
 
             } else if (node instanceof PhiNode phinode) {
+                phis.add(phinode);
                 for (var v : phinode.values()) {
                     essa.put(Pair.create(v, phinode), 0L);
                 }
+            } else if (node instanceof LoadIndexedNode loadnode) {
+                var canonlen = canonicalLengths.get(loadnode.array());
+                piContexts.get(loadnode).overlay.put(
+                        Pair.create(canonlen, loadnode.index()), -1L
+                );
             }
 
             System.out.println(node.getClass().toString() + " " +  node);
@@ -266,11 +273,13 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 y, graph.addOrUnique(PiNode.create(y, y.stamp(NodeView.DEFAULT), guard)));
         assert !Objects.equals(x, em.get(x)) : "pi node not created for " + x;
         assert !Objects.equals(y, em.get(y)) : "pi node not created for " + y;
+
         return new PiContext(begin, em);
     }
 
     private static class PiContext {
         public final EconomicMap<Node, Node> replacements;
+        public final EconomicMap<Pair<Node, Node>, Long> overlay = EconomicMap.create();
         // a mapping of array nodes to their length nodes. used when constructing pi nodes after array-accesses.
         public final NodeMap<ArrayLengthNode> lengthNodes;
         public final FixedNode begin; // exclusive!
@@ -281,56 +290,6 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             this.replacements = replacements;
             this.lengthNodes = new NodeMap<>(begin.graph());
         }
-    }
-
-    private void doPiReplacements(ControlFlowGraph cfg, PiContext context) {
-
-        final var beginBlock = cfg.getNodeToBlock().get(context.begin);
-
-        NodeFlood flood = context.begin.graph().createNodeFlood();
-        flood.add(context.begin);
-        {
-            var it = beginBlock.getNodes().iterator();
-            //noinspection StatementWithEmptyBody
-            while (!Objects.equals(it.next(), context.begin));
-            while (it.hasNext()) flood.add(it.next());
-        }
-
-        for (var block : context.blocks) {
-            if (Objects.equals(block, beginBlock)) continue;
-            for (var node : block.getNodes()) {
-                flood.add(node);
-            }
-        }
-
-        for (var node : flood) {
-            flood.addAll(node.inputs());
-        }
-
-        // at this point, we have constructed a 'cone' of all input dependencies within this Pi variable's range.
-        // now, we can take each pi-ed variable and check which of its uses appear within this cone.
-
-        // actually, maybe we can avoid this... it would be much easier if we constructed the pi-nodes "on-demand"
-        // based on the location of the bounds-check we aim to eliminate. this can be done by simple substitutions on the graph.
-        // moreover, this is safe (?) because SSA variables have a fixed value and this will only be used for a single substitution
-        // at a single point. maybe less efficient.
-
-        for (var it = context.replacements.getEntries(); it.advance(); ) {
-            var orig = it.getKey();
-            var pi = it.getValue();
-
-            for (var user : orig.usages()) {
-
-
-            }
-
-
-
-
-
-        }
-
-
     }
 
     private AbstractMergeNode addPiNodes(HIRBlock block, final Deque<PiContext> replacements) {
@@ -358,7 +317,6 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
         System.out.println("addPiNodes: " + block);
         for (var node : block.getNodes()) {
-            doPiReplacements(node, new ArrayDeque<>(), replacements);
 
             final var lastLengthNodes = replacements.getLast().lengthNodes;
             if (node instanceof ArrayLengthNode length) {
@@ -387,12 +345,13 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                     lastLengthNodes.put(load.array(), length);
                 }
 
-                var cond = graph.addOrUnique(new IntegerBelowNode(load.index(), length));
-                var guard = new GuardNode(cond, block.getBeginNode(), DeoptimizationReason.None, DeoptimizationAction.InvalidateRecompile, false, null, null);
-                guard = graph.addOrUniqueWithInputs(guard);
-                var pi = graph.addOrUnique(PiNode.create(load.index(), load.index().stamp(NodeView.DEFAULT), guard));
+//                var cond = graph.addOrUnique(new IntegerBelowNode(load.index(), length));
+//                var guard = new GuardNode(cond, block.getBeginNode(), DeoptimizationReason.None, DeoptimizationAction.InvalidateRecompile, false, null, null);
+//                guard = graph.addOrUniqueWithInputs(guard);
+//                var pi = graph.addOrUnique(PiNode.create(load.index(), load.index().stamp(NodeView.DEFAULT), guard));
 
-                var context = new PiContext(load, EconomicMap.of(load.index(), pi));
+                var context = new PiContext(load, EconomicMap.create());
+                piContexts.put(context.begin, context);
                 context.blocks.add(block);
                 replacements.add(context);
             }
@@ -501,6 +460,106 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         }
     }
 
+    private static class DemandProver {
+        private final EconomicMap<Pair<Node, Node>, Long> essa;
+        private final EconomicMap<Pair<ArrayLengthNode, Node>, TreeMap<Long, Lattice>> C = EconomicMap.create();
+        private final EconomicMap<Node, Long> active = EconomicMap.create();
+
+        public enum Lattice {
+            False,
+            Reduced,
+            True
+        }
+
+        // smaller
+        public static Lattice meet(Lattice x, Lattice y) {
+            if (x == Lattice.False || y == Lattice.False) return Lattice.False;
+            if (x == Lattice.Reduced || y == Lattice.Reduced) return Lattice.Reduced;
+            return Lattice.True;
+        }
+
+        // bigger
+        public static Lattice join(Lattice x, Lattice y) {
+            if (x == Lattice.True || y == Lattice.True) return Lattice.True;
+            if (x == Lattice.Reduced || y == Lattice.Reduced) return Lattice.Reduced;
+            return Lattice.False;
+        }
+
+        // XXX: good for one demand-prove only!
+        public DemandProver(EconomicMap<Pair<Node, Node>, Long> essa, Iterable<PiContext> piContexts) {
+            this.essa = essa;
+            // TODO: also initialise overlay of pi relations.
+            addPiEdges(piContexts);
+        }
+
+        public void addPiEdges(Iterable<PiContext> piContexts) {
+            for (var context : piContexts) {
+                for (var it = context.overlay.getEntries(); it.advance(); ) {
+                    essa.put(it.getKey(), it.getValue());
+                }
+            }
+        }
+
+        public Lattice prove(ArrayLengthNode a, Node v, long c) {
+            var ckey = Pair.create(a, v);
+            if (C.get(ckey) == null)
+                C.put(ckey, new TreeMap<>());
+            var cmap = C.get(ckey);
+
+            for (var proven : cmap.entrySet()) {
+                var e = proven.getKey();
+                var ret = proven.getValue();
+                // same or stronger difference was already proven
+                if (e <= c && ret == Lattice.True) return Lattice.True;
+                // same or weaker difference was already disproved
+                if (e >= c && ret == Lattice.False) return Lattice.False;
+                // v is on a cycle that was reduced for same or stronger difference
+                if (e <= c && ret == Lattice.Reduced) return Lattice.Reduced;
+            }
+            // traversal reached the source vertex, success if a - a <= c
+            if (a.equals(v) && c >= 0) return Lattice.True;
+
+            // if no constraint exist on the value of v, we fail
+            // recall: edge u -c-> v constrains v by v - u <= c.
+            boolean has = false;
+            for (var it = essa.getEntries(); it.advance(); ) {
+                if (it.getKey().getRight().equals(v)) {
+                    has = true;
+                    break;
+                }
+            }
+            if (!has) return Lattice.False;
+
+            // a cycle at v
+            if (active.containsKey(v)) {
+                // an amplifying cycle which can become arbitrarily large
+                if (c > active.get(v)) return Lattice.False;
+                // harmless cycle
+                else return Lattice.Reduced;
+            }
+            active.put(v, c);
+            if (v instanceof PhiNode) {
+                for (var it = essa.getEntries(); it.advance(); ) {
+                    if (!it.getKey().getRight().equals(v)) continue;
+                    var u = it.getKey().getLeft();
+                    var d = it.getValue();
+                    var prev = Objects.requireNonNullElse(cmap.get(c), Lattice.True);
+                    cmap.put(c, meet(prev, prove(a, u, c - d)));
+                }
+            } else {
+                for (var it = essa.getEntries(); it.advance(); ) {
+                    if (!it.getKey().getRight().equals(v)) continue;
+                    var u = it.getKey().getLeft();
+                    var d = it.getValue();
+                    var prev = Objects.requireNonNullElse(cmap.get(c), Lattice.False);
+                    cmap.put(c, join(prev, prove(a, u, c - d)));
+                }
+            }
+            active.removeKey(v);
+            return cmap.get(c);
+        }
+    }
+    
     private static void iterateSuccessorsAndInputs(NodeFlood flood) {
         Node.EdgeVisitor consumer = new Node.EdgeVisitor() {
             @Override
