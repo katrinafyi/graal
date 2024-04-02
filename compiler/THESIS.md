@@ -23,3 +23,12 @@ use dominator tree... somehow?
 2024-03-13 how do you eliminate bounds checks that do not exist?? we will need to do if node creation...
 
 2024-03-20 Ian: write lots of details about approaches tried otherwise this will be forgotten. working on pi node algorithms for essa generation and trying to avoid explicit creation of pi nodes
+
+2024-04-02 omitting pi nodes has failed spectacularly. although the inequalities
+in isolation should be equivalent, the algorithm relies on handling phi and
+non-phi variables differently. omitting pi nodes means some variables are
+incorrectly pointing to phis when they should not be.
+
+we are making progress, but there is a problem with the reduced loop detection.
+the graph matches very closely with the paper example, but the logic is wrong i
+believe.

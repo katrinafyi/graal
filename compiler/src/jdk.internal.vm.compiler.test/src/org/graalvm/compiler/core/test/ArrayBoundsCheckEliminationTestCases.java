@@ -278,7 +278,7 @@ public class ArrayBoundsCheckEliminationTestCases {
 //                }
 //            }
         }
-        return 0;
+        return s;
     }
 
     public static void main(String[] args) throws InvocationTargetException, IllegalAccessException {

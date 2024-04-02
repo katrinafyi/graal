@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.function.Function;
 
 import jdk.vm.ci.meta.DeoptimizationAction;
 import jdk.vm.ci.meta.DeoptimizationReason;
@@ -63,15 +64,6 @@ import org.graalvm.compiler.options.OptionType;
 import org.graalvm.compiler.phases.Phase;
 
 public class ArrayBoundsCheckEliminationPhase extends Phase {
-
-    sealed interface ESSA {
-        record Constant(long c) implements ESSA {}
-        record ArrayLength(Node array) implements ESSA {}
-        record Node(Node array) implements ESSA {}
-    }
-
-
-
 
     public static class Options {
 
@@ -132,6 +124,15 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         return null;
     }
 
+    Node canonicalizeEssaNode(Node node) {
+        if (node instanceof ArrayLengthNode lennode) {
+            return Objects.requireNonNull(canonicalLengths.get(lennode.array()));
+        } else if (node instanceof ValueProxyNode proxy) {
+            return proxy.getOriginalNode();
+        }
+        return node;
+    }
+
     @Override
     public void run(StructuredGraph graph) {
         if (disabled || optional && Options.DisableABCE.getValue(graph.getOptions())) {
@@ -150,7 +151,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         }
 
         final ArrayDeque<PiContext> deque = new ArrayDeque<>();
-        deque.push(new PiContext(cfg.getStartBlock().getBeginNode(), cfg.getStartBlock(), EconomicMap.create()));
+        deque.push(new PiContext(List.of(), cfg.getStartBlock().getBeginNode(), cfg.getStartBlock(), EconomicMap.create()));
         var end = addPiNodes(cfg.getStartBlock(), deque);
 
 //        ControlFlowGraph.RecursiveVisitor<?> visitor = createVisitor(graph, cfg, blockToNodes, nodeToBlock, context);
@@ -202,20 +203,19 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 //                    }
 
                     // pi(X) < pi(Y)  <==> pi(X) - pi(Y) <= - 1
-                    tpi.overlay.put(Pair.create((y), (x)), -1L);
+                    tpi.overlay.put(Pair.create(EssaVar.pi(y), EssaVar.pi(x)), -1L);
 
                     // X >= Y  <==> pi(Y) - pi(X) <= 0
 //                    essa.put(Pair.create(falsemap.get(x), falsemap.get(y)), 0L);
-                    //noinspection SuspiciousNameCombination
-                    fpi.overlay.put(Pair.create(x, y), 0L);
+                    fpi.overlay.put(Pair.create(EssaVar.pi(x), EssaVar.pi(y)), 0L);
                 }
             } else if (node instanceof final ArrayLengthNode lengthnode) {
                 var canonlen = canonicalLengths.get(lengthnode.array());
                 if (canonlen == null) {
                     canonicalLengths.put(lengthnode.array(), lengthnode);
-                    canonlen = lengthnode;
+//                    canonlen = lengthnode;
                 }
-                essa.put(Pair.create(canonlen, lengthnode), 0L);
+//                essa.put(Pair.create(canonlen, lengthnode), 0L);
 
             } else if (node instanceof PhiNode phinode) {
                 phis.add(phinode);
@@ -225,13 +225,25 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             } else if (node instanceof LoadIndexedNode loadnode) {
                 var canonlen = canonicalLengths.get(loadnode.array());
                 piContexts.get(loadnode).overlay.put(
-                        Pair.create(canonlen, loadnode.index()), -1L
+                        Pair.create(EssaVar.pure(canonlen), EssaVar.pi(loadnode.index())), -1L
                 );
-                theload = loadnode;
+                if (theload == null) theload = loadnode;
             }
 
-            System.out.println(node.getClass().toString() + " " +  node);
+            System.out.println(node.getClass() + " " +  node);
         }
+
+        EconomicMap<Pair<Node, Node>, Long> replaced = EconomicMap.create();
+        for (var it = essa.getEntries(); it.advance() ;) {
+            var key = it.getKey();
+            var value = it.getValue();
+            var canon = Pair.create(canonicalizeEssaNode(key.getLeft()), canonicalizeEssaNode(key.getRight()));
+            if (!Objects.equals(key, canon)) {
+                it.remove();
+                replaced.put(canon, value);
+            }
+        }
+        essa.putAll(replaced);
 
 
         // begin eliminating bounds checks
@@ -254,10 +266,11 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         System.out.println("DOT! }");
 
         System.out.println("preparing to eliminate check for " + theload);
-        System.out.println(new DemandProver(essa, piContextsInScope, lengthnode).prove(indexnode, -1L));
+        var prover = new DemandProver(essa, piContextsInScope, lengthnode);
+        System.out.println(prover.prove(indexnode, -1L));
 
         System.out.println("DOT2! digraph G {");
-        for (var it = essa.getEntries(); it.advance();) {
+        for (var it = prover.piEssa.getEntries(); it.advance();) {
             System.out.printf("DOT2! \"%s\" -> \"%s\" [ label=\"%d\" ];%n", it.getKey().getLeft(), it.getKey().getRight(), it.getValue());
         }
         System.out.println("DOT2! }");
@@ -302,12 +315,12 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         assert !Objects.equals(x, em.get(x)) : "pi node not created for " + x;
         assert !Objects.equals(y, em.get(y)) : "pi node not created for " + y;
 
-        return new PiContext(begin, beginBlock, em);
+        return new PiContext(List.of(x,y), begin, beginBlock, em);
     }
 
     private static class PiContext {
         public final EconomicMap<Node, Node> replacements;
-        public final EconomicMap<Pair<Node, Node>, Long> overlay = EconomicMap.create();
+        public final EconomicMap<Pair<EssaVar, EssaVar>, Long> overlay = EconomicMap.create();
         // a mapping of array nodes to their length nodes. used when constructing pi nodes after array-accesses.
         public final NodeMap<ArrayLengthNode> lengthNodes;
         public final FixedNode begin; // exclusive!
@@ -316,8 +329,14 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         public final EconomicSet<FixedNode> beginNodes = EconomicSet.create();
         /** set of blocks which are fully-affected by this context. */
         public final EconomicSet<HIRBlock> fullBlocks = EconomicSet.create();
+        public final List<Node> piBases;
 
-        private PiContext(FixedNode begin, HIRBlock beginBlock, EconomicMap<Node, Node> replacements) {
+        private PiContext(Node piBase, FixedNode begin, HIRBlock beginBlock, EconomicMap<Node, Node> replacements) {
+            this(List.of(piBase), begin, beginBlock, replacements);
+        }
+
+        private PiContext(List<Node> piBases, FixedNode begin, HIRBlock beginBlock, EconomicMap<Node, Node> replacements) {
+            this.piBases = piBases;
             this.begin = begin;
             this.replacements = replacements;
             this.lengthNodes = new NodeMap<>(begin.graph());
@@ -388,7 +407,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 //                guard = graph.addOrUniqueWithInputs(guard);
 //                var pi = graph.addOrUnique(PiNode.create(load.index(), load.index().stamp(NodeView.DEFAULT), guard));
 
-                var context = new PiContext(load, block, EconomicMap.create());
+                var context = new PiContext(load.index(), load, block, EconomicMap.create());
                 piContexts.put(context.begin, context);
                 replacements.add(context);
             }
@@ -440,8 +459,8 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 var tend = addPiNodes(nodetoblock.get(truesucc), replacements);
                 var fend = addPiNodes(nodetoblock.get(falsesucc), replacements);
 
-                piContexts.put(truesucc, new PiContext(truesucc, nodetoblock.get(truesucc), EconomicMap.create()));
-                piContexts.put(falsesucc, new PiContext(falsesucc, nodetoblock.get(falsesucc), EconomicMap.create()));
+                piContexts.put(truesucc, new PiContext(List.of(), truesucc, nodetoblock.get(truesucc), EconomicMap.create()));
+                piContexts.put(falsesucc, new PiContext(List.of(), falsesucc, nodetoblock.get(falsesucc), EconomicMap.create()));
 
                 merge1 = tend;
                 merge2 = fend;
@@ -497,11 +516,32 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         }
     }
 
+    private sealed interface EssaVar {
+        record Pi(EssaVar v) implements EssaVar {
+            @Override public Node base() { return v.base(); }
+        }
+        record NodeVar(Node n) implements EssaVar {
+            @Override public Node base() { return n; }
+        }
+
+        Node base();
+
+        static Pi pi(Node n) {
+            return new Pi(pure(n));
+        }
+        static NodeVar pure(Node n) {
+            return new NodeVar(n);
+        }
+    }
+
     private static class DemandProver {
+
         private final EconomicMap<Pair<Node, Node>, Long> essa;
+        private final EconomicMap<Pair<EssaVar, EssaVar>, Long> piEssa;
         private final ArrayLengthNode a;
-        private final EconomicMap<Pair<ArrayLengthNode, Node>, TreeMap<Long, Lattice>> C = EconomicMap.create();
-        private final EconomicMap<Node, Long> active = EconomicMap.create();
+        private final EconomicMap<Pair<ArrayLengthNode, EssaVar>, TreeMap<Long, Lattice>> C = EconomicMap.create();
+        private final EconomicMap<EssaVar, Long> active = EconomicMap.create();
+        private int depth = 0;
 
         public enum Lattice {
             False,
@@ -526,17 +566,50 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         // XXX: good for one demand-prove only!
         public DemandProver(EconomicMap<Pair<Node, Node>, Long> essa, Iterable<PiContext> piContexts, ArrayLengthNode a) {
             this.essa = essa;
+            this.piEssa = EconomicMap.create();
             this.a = a;
             System.out.println("DemandProver init: " + a);
-            addPiEdges(piContexts);
+            createPiEssa(piContexts);
         }
 
-        public void addPiEdges(Iterable<PiContext> piContexts) {
+        private Pair<EssaVar, EssaVar> liftNodePair(Pair<Node, Node> nodePair) {
+            return Pair.create(new EssaVar.NodeVar(nodePair.getLeft()), new EssaVar.NodeVar(nodePair.getRight()));
+        }
+
+        public void createPiEssa(Iterable<PiContext> piContexts) {
+            assert piEssa.isEmpty();
+
+            EconomicSet<Node> piBases = EconomicSet.create();
             for (var context : piContexts) {
+                piBases.addAll(context.piBases);
+                // add virtual pi nodes.
+                for (var base : context.piBases) {
+                    piEssa.put(Pair.create(EssaVar.pure(base), EssaVar.pi(base)), 0L);
+                }
+
                 System.out.println("DemandProver adding picontext from: " + context.begin);
                 for (var it = context.overlay.getEntries(); it.advance(); ) {
-                    essa.put(it.getKey(), it.getValue());
+                    piEssa.put(it.getKey(), it.getValue());
                 }
+            }
+
+            // XXX pi variables of pi variables? need to determine pi-ness by testing if it appears within contexts??
+            // we are back at the original problem...
+            Function<Node, EssaVar> maybePi = (Node n) ->
+                    piBases.contains(n) ? EssaVar.pi(n) : EssaVar.pure(n);
+
+            for (var it = essa.getEntries(); it.advance(); ) {
+                var k = it.getKey();
+                var v = it.getValue();
+                // use pi variables if they exist.
+                var r = maybePi.apply(k.getRight());
+                if (r.base() instanceof PhiNode phi) {
+                    if (phi.inputs().contains(k.getLeft())) {
+                        // if this is an input constraint edge, we must point to original phi node.
+                        r = EssaVar.pure(phi);
+                    }
+                }
+                piEssa.put(Pair.create(maybePi.apply(k.getLeft()), r), v);
             }
         }
 
@@ -545,7 +618,21 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
          * if proven, this will bound "index < array length" and hence this array index needs no bounds check.
          */
         public Lattice prove(Node v, long c) {
-            System.out.printf("prove: %s -> %s (i.e. %s - %s <= %d)%n", a, v, v, a, c);
+            return prove(EssaVar.pi(v), c); // XXX need to be smarter with this.
+        }
+
+        private Lattice prove(EssaVar v, long c) {
+            var indent = " ".repeat(depth);
+            System.out.printf("%sprove: %s -> %s (i.e. (%s) - (%s) <= %d)%n", indent, a, v, v, a, c);
+            depth++;
+            var result = prove(v, c, indent);
+            depth--;
+            System.out.printf("%s= %s%n", indent, result);
+            return result;
+        }
+
+        private Lattice prove(EssaVar v, long c, String indent) {
+
             var ckey = Pair.create(a, v);
             if (C.get(ckey) == null)
                 C.put(ckey, new TreeMap<>());
@@ -562,12 +649,12 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 if (e <= c && ret == Lattice.Reduced) return Lattice.Reduced;
             }
             // traversal reached the source vertex, success if a - a <= c
-            if (a.equals(v) && c >= 0) return Lattice.True;
+            if (EssaVar.pure(a).equals(v) && c >= 0) return Lattice.True;
 
             // if no constraint exist on the value of v, we fail
             // recall: edge u -c-> v constrains v by v - u <= c.
             boolean has = false;
-            for (var it = essa.getEntries(); it.advance(); ) {
+            for (var it = piEssa.getEntries(); it.advance(); ) {
                 if (it.getKey().getRight().equals(v)) {
                     has = true;
                     break;
@@ -583,8 +670,9 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 else return Lattice.Reduced;
             }
             active.put(v, c);
-            if (v instanceof PhiNode) {
-                for (var it = essa.getEntries(); it.advance(); ) {
+            System.out.printf("%s... parents of %s%n", indent, v);
+            if (v instanceof EssaVar.NodeVar nodevar && nodevar.n instanceof PhiNode) {
+                for (var it = piEssa.getEntries(); it.advance(); ) {
                     if (!it.getKey().getRight().equals(v)) continue;
                     var u = it.getKey().getLeft();
                     var d = it.getValue();
@@ -592,7 +680,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                     cmap.put(c, meet(prev, prove(u, c - d)));
                 }
             } else {
-                for (var it = essa.getEntries(); it.advance(); ) {
+                for (var it = piEssa.getEntries(); it.advance(); ) {
                     if (!it.getKey().getRight().equals(v)) continue;
                     var u = it.getKey().getLeft();
                     var d = it.getValue();
