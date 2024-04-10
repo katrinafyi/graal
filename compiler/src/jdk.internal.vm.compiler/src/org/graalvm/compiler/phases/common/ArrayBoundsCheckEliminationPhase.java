@@ -26,6 +26,7 @@ package org.graalvm.compiler.phases.common;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
@@ -110,6 +111,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
     private ControlFlowGraph cfg;
     private final EconomicMap<Node, PiContext> piContexts = EconomicMap.create();
     private NodeMap<ArrayLengthNode> canonicalLengths;
+    public final List<DemandProver> provers = new ArrayList<>();
 
     @Override
     public Optional<NotApplicable> notApplicableTo(GraphState graphState) {
@@ -163,7 +165,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         EconomicMap<Pair<Node, Node>, Long> essa = EconomicMap.create();
         EconomicSet<PhiNode> phis = EconomicSet.create();
 
-        LoadIndexedNode theload = null;
+        List<LoadIndexedNode> boundsChecks = new ArrayList<>();
 
         canonicalLengths = new NodeMap<>(graph);
         // graal ir does not explicitly assign to local variables. instead, we can pretend each SSA node is an assignment
@@ -206,16 +208,13 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                     tpi.overlay.put(Pair.create(EssaVar.pi(y), EssaVar.pi(x)), -1L);
 
                     // X >= Y  <==> pi(Y) - pi(X) <= 0
-//                    essa.put(Pair.create(falsemap.get(x), falsemap.get(y)), 0L);
                     fpi.overlay.put(Pair.create(EssaVar.pi(x), EssaVar.pi(y)), 0L);
                 }
             } else if (node instanceof final ArrayLengthNode lengthnode) {
                 var canonlen = canonicalLengths.get(lengthnode.array());
                 if (canonlen == null) {
                     canonicalLengths.put(lengthnode.array(), lengthnode);
-//                    canonlen = lengthnode;
                 }
-//                essa.put(Pair.create(canonlen, lengthnode), 0L);
 
             } else if (node instanceof PhiNode phinode) {
                 phis.add(phinode);
@@ -227,7 +226,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 piContexts.get(loadnode).overlay.put(
                         Pair.create(EssaVar.pure(canonlen), EssaVar.pi(loadnode.index())), -1L
                 );
-                if (theload == null) theload = loadnode;
+                boundsChecks.add(loadnode);
             }
 
             System.out.println(node.getClass() + " " +  node);
@@ -244,36 +243,40 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             }
         }
         essa.putAll(replaced);
+        Collections.reverse(boundsChecks);
+        boundsChecks = boundsChecks.subList(0, 1); // XXX
 
-
-        // begin eliminating bounds checks
-        var theblock = cfg.getNodeToBlock().get(theload);
-        var lengthnode = canonicalLengths.get(theload.array());
-        var indexnode = theload.index();
-        List<PiContext> piContextsInScope = new ArrayList<>();
-        for (var it = piContexts.getEntries(); it.advance(); ) {
-            var ctx = it.getValue();
-            if (ctx.fullBlocks.contains(theblock) || ctx.beginNodes.contains(theload)) {
-                piContextsInScope.add(ctx);
-                System.out.println(ctx.beginNodes);
+        for (var boundsCheck : boundsChecks) {
+            // begin eliminating bounds checks
+            var theblock = cfg.getNodeToBlock().get(boundsCheck);
+            var lengthnode = canonicalLengths.get(boundsCheck.array());
+            var indexnode = boundsCheck.index();
+            List<PiContext> piContextsInScope = new ArrayList<>();
+            for (var it = piContexts.getEntries(); it.advance(); ) {
+                var ctx = it.getValue();
+                if (ctx.fullBlocks.contains(theblock) || ctx.beginNodes.contains(boundsCheck)) {
+                    piContextsInScope.add(ctx);
+                    System.out.println(ctx.beginNodes);
+                }
             }
-        }
 
-        System.out.println("DOT! digraph G {");
-        for (var it = essa.getEntries(); it.advance();) {
-            System.out.printf("DOT! \"%s\" -> \"%s\" [ label=\"%d\" ];%n", it.getKey().getLeft(), it.getKey().getRight(), it.getValue());
-        }
-        System.out.println("DOT! }");
+            System.out.println("DOT! digraph G {");
+            for (var it = essa.getEntries(); it.advance(); ) {
+                System.out.printf("DOT! \"%s\" -> \"%s\" [ label=\"%d\" ];%n", it.getKey().getLeft(), it.getKey().getRight(), it.getValue());
+            }
+            System.out.println("DOT! }");
 
-        System.out.println("preparing to eliminate check for " + theload);
-        var prover = new DemandProver(essa, piContextsInScope, lengthnode);
-        System.out.println(prover.prove(indexnode, -1L));
+            System.out.println("preparing to eliminate check for " + boundsCheck);
+            var prover = new DemandProver(essa, piContextsInScope, lengthnode);
+            provers.add(prover);
+            System.out.println(prover.prove(indexnode, -1L));
 
-        System.out.println("DOT2! digraph G {");
-        for (var it = prover.piEssa.getEntries(); it.advance();) {
-            System.out.printf("DOT2! \"%s\" -> \"%s\" [ label=\"%d\" ];%n", it.getKey().getLeft(), it.getKey().getRight(), it.getValue());
+            System.out.println("DOT2! digraph G {");
+            for (var it = prover.piEssa.getEntries(); it.advance(); ) {
+                System.out.printf("DOT2! \"%s\" -> \"%s\" [ label=\"%d\" ];%n", it.getKey().getLeft(), it.getKey().getRight(), it.getValue());
+            }
+            System.out.println("DOT2! }");
         }
-        System.out.println("DOT2! }");
 
 
 
@@ -301,7 +304,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             assert totalNodeCount > totalMarkedCount;
         }
 
-        deleteNodes(flood, graph);
+//        deleteNodes(flood, graph);
     }
 
     private PiContext makePiMap(FixedNode begin, HIRBlock beginBlock, AnchoringNode anchor, ValueNode x, ValueNode y, LogicNode cond, boolean whichBranch) {
@@ -318,7 +321,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         return new PiContext(List.of(x,y), begin, beginBlock, em);
     }
 
-    private static class PiContext {
+    static class PiContext {
         public final EconomicMap<Node, Node> replacements;
         public final EconomicMap<Pair<EssaVar, EssaVar>, Long> overlay = EconomicMap.create();
         // a mapping of array nodes to their length nodes. used when constructing pi nodes after array-accesses.
@@ -456,6 +459,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             } else {
                 System.out.println("unknown if condition: " + cond.toString());
 
+                // no extra replacements down paths with unsupported conditions.
                 var tend = addPiNodes(nodetoblock.get(truesucc), replacements);
                 var fend = addPiNodes(nodetoblock.get(falsesucc), replacements);
 
@@ -465,18 +469,20 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 merge1 = tend;
                 merge2 = fend;
             }
-            assert Objects.equals(merge1, merge2) : "differing merge results from " + ifnode + " : " + merge1 + " | " + merge2;
+//            assert Objects.equals(merge1, merge2) : "differing merge results from " + ifnode + " : " + merge1 + " | " + merge2;
 
-            if (merge1 == null) {
-                System.out.println("non-merging if statement: " + ifnode);
-                return null;
+            if (merge1 != null) {
+                addPiNodes(nodetoblock.get(merge1), replacements);
             }
-            System.out.println("merged from if: " + ifnode);
-            return addPiNodes(nodetoblock.get(merge1), replacements);
+            if (merge2 != null) {
+                addPiNodes(nodetoblock.get(merge2), replacements);
+            }
+            return null;
 
         } else if (endnode instanceof LoopEndNode) {
             // a loop end is the end of a loop's inner block. both cases are considered at the loop entry, do not recurse.
             return null;
+
         } else if (endnode instanceof ReturnNode) {
             return null;
 
@@ -516,7 +522,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         }
     }
 
-    private sealed interface EssaVar {
+    public sealed interface EssaVar {
         record Pi(EssaVar v) implements EssaVar {
             @Override public Node base() { return v.base(); }
         }
@@ -529,18 +535,23 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         static Pi pi(Node n) {
             return new Pi(pure(n));
         }
+        static Pi pi(EssaVar n) {
+            return new Pi(n);
+        }
         static NodeVar pure(Node n) {
             return new NodeVar(n);
         }
     }
 
-    private static class DemandProver {
+    public static class DemandProver {
 
         private final EconomicMap<Pair<Node, Node>, Long> essa;
         private final EconomicMap<Pair<EssaVar, EssaVar>, Long> piEssa;
         private final ArrayLengthNode a;
         private final EconomicMap<Pair<ArrayLengthNode, EssaVar>, TreeMap<Long, Lattice>> C = EconomicMap.create();
         private final EconomicMap<EssaVar, Long> active = EconomicMap.create();
+        /** map of Graal nodes to their ESSA var, possibly adding pi nodes. */
+        private final EconomicMap<Node, EssaVar> piMap = EconomicMap.create();
         private int depth = 0;
 
         public enum Lattice {
@@ -572,6 +583,11 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             createPiEssa(piContexts);
         }
 
+        public EssaVar maybePi(Node n) {
+            var pi = piMap.get(n);
+            return pi != null ? pi : EssaVar.pure(n);
+        }
+
         private Pair<EssaVar, EssaVar> liftNodePair(Pair<Node, Node> nodePair) {
             return Pair.create(new EssaVar.NodeVar(nodePair.getLeft()), new EssaVar.NodeVar(nodePair.getRight()));
         }
@@ -584,7 +600,9 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 piBases.addAll(context.piBases);
                 // add virtual pi nodes.
                 for (var base : context.piBases) {
-                    piEssa.put(Pair.create(EssaVar.pure(base), EssaVar.pi(base)), 0L);
+                    var piNew = EssaVar.pi(maybePi(base));
+                    piEssa.put(Pair.create(EssaVar.pure(base), piNew), 0L);
+                    piMap.put(base, piNew);
                 }
 
                 System.out.println("DemandProver adding picontext from: " + context.begin);

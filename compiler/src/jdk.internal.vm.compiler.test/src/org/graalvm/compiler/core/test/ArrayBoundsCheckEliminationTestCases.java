@@ -254,6 +254,21 @@ public class ArrayBoundsCheckEliminationTestCases {
         return s;
     }
 
+    public static int bubblesortx(int[] a) {
+        var x = a[0];
+        var s = 0;
+        if (x < 0) {
+            s++;
+            if (x < -1) {
+                s++;
+                if (x < -1) {
+                    s++;
+                }
+            }
+        }
+        return s;
+    }
+
     public static int bubblesort(int[] a) {
         var limit = a.length;
         var st = -1;
