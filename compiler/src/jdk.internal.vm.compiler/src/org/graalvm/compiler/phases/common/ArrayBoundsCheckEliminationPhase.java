@@ -243,9 +243,10 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             }
         }
         essa.putAll(replaced);
-        Collections.reverse(boundsChecks);
-        boundsChecks = boundsChecks.subList(0, 1); // XXX
+//        Collections.reverse(boundsChecks);
+//        boundsChecks = boundsChecks.subList(0, 1); // XXX
 
+        int i = 2;
         for (var boundsCheck : boundsChecks) {
             // begin eliminating bounds checks
             var theblock = cfg.getNodeToBlock().get(boundsCheck);
@@ -260,22 +261,23 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 }
             }
 
-            System.out.println("DOT! digraph G {");
-            for (var it = essa.getEntries(); it.advance(); ) {
-                System.out.printf("DOT! \"%s\" -> \"%s\" [ label=\"%d\" ];%n", it.getKey().getLeft(), it.getKey().getRight(), it.getValue());
-            }
-            System.out.println("DOT! }");
+//            System.out.println("DOT! digraph G {");
+//            for (var it = essa.getEntries(); it.advance(); ) {
+//                System.out.printf("DOT! \"%s\" -> \"%s\" [ label=\"%d\" ];%n", it.getKey().getLeft(), it.getKey().getRight(), it.getValue());
+//            }
+//            System.out.println("DOT! }");
 
             System.out.println("preparing to eliminate check for " + boundsCheck);
-            var prover = new DemandProver(essa, piContextsInScope, lengthnode);
+            var prover = new DemandProver(lengthnode, boundsCheck, essa, piContextsInScope);
             provers.add(prover);
             System.out.println(prover.prove(indexnode, -1L));
 
-            System.out.println("DOT2! digraph G {");
+            System.out.printf("DOT%d! digraph G {%n", i);
             for (var it = prover.piEssa.getEntries(); it.advance(); ) {
-                System.out.printf("DOT2! \"%s\" -> \"%s\" [ label=\"%d\" ];%n", it.getKey().getLeft(), it.getKey().getRight(), it.getValue());
+                System.out.printf("DOT%d! \"%s\" -> \"%s\" [ label=\"%d\" ];%n", i, it.getKey().getLeft(), it.getKey().getRight(), it.getValue());
             }
-            System.out.println("DOT2! }");
+            System.out.printf("DOT%d! }%n", i);
+            i++;
         }
 
 
@@ -575,11 +577,11 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         }
 
         // XXX: good for one demand-prove only!
-        public DemandProver(EconomicMap<Pair<Node, Node>, Long> essa, Iterable<PiContext> piContexts, ArrayLengthNode a) {
+        public DemandProver(ArrayLengthNode a, LoadIndexedNode load, EconomicMap<Pair<Node, Node>, Long> essa, Iterable<PiContext> piContexts) {
             this.essa = essa;
             this.piEssa = EconomicMap.create();
             this.a = a;
-            System.out.println("DemandProver init: " + a);
+            System.out.println("DemandProver init: array=" + a + ", load=" + load);
             createPiEssa(piContexts);
         }
 
@@ -611,23 +613,18 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 }
             }
 
-            // XXX pi variables of pi variables? need to determine pi-ness by testing if it appears within contexts??
-            // we are back at the original problem...
-            Function<Node, EssaVar> maybePi = (Node n) ->
-                    piBases.contains(n) ? EssaVar.pi(n) : EssaVar.pure(n);
-
             for (var it = essa.getEntries(); it.advance(); ) {
                 var k = it.getKey();
                 var v = it.getValue();
                 // use pi variables if they exist.
-                var r = maybePi.apply(k.getRight());
+                var r = maybePi(k.getRight());
                 if (r.base() instanceof PhiNode phi) {
                     if (phi.inputs().contains(k.getLeft())) {
                         // if this is an input constraint edge, we must point to original phi node.
                         r = EssaVar.pure(phi);
                     }
                 }
-                piEssa.put(Pair.create(maybePi.apply(k.getLeft()), r), v);
+                piEssa.put(Pair.create(maybePi(k.getLeft()), r), v);
             }
         }
 

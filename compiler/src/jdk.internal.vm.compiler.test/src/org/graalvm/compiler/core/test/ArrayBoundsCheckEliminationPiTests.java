@@ -55,7 +55,6 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
         }
         return -1;
     }
-
     private int one_if(int i, int[] a) {
         return (1 <= i) ? a[i] : -1;
     }
@@ -66,7 +65,8 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
         Assert.assertEquals(1, loads.size());
         var load = loads.get(0);
         var prover = phase.provers.get(0);
-        Assert.assertEquals(pi(pi(load.index())), prover.maybePi(load.index()));
+        Assert.assertEquals("pi correctness two_if", pi(pi(load.index())), prover.maybePi(load.index()));
+        Assert.assertEquals("elimination two_if", ArrayBoundsCheckEliminationPhase.DemandProver.Lattice.True, prover.prove(load.index(), -1));
     }
     @Test
     public void test_one_if() {
@@ -76,6 +76,25 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
         Assert.assertEquals(1, loads.size());
         var load = loads.get(0);
         var prover = phase.provers.get(0);
-        Assert.assertEquals(pi(load.index()), prover.maybePi(load.index()));
+        Assert.assertEquals("pi one_if", pi(load.index()), prover.maybePi(load.index()));
+        Assert.assertEquals("non-elimination two_if", ArrayBoundsCheckEliminationPhase.DemandProver.Lattice.False, prover.prove(load.index(), -1));
+    }
+
+    private int array_two_load(int i, int[] a, boolean b) {
+        int s = a[i];
+        if (b) s += a[i];
+        return s;
+    }
+
+    @Test
+    public void test_array_two_load() {
+        prepare("array_two_load");
+        System.out.println(phase.provers);
+        Assert.assertEquals(2, phase.provers.size());
+        Assert.assertEquals(2, loads.size());
+        var load = loads.get(0);
+        var prover = phase.provers.get(1);
+        Assert.assertEquals("pi array_load second load", pi(load.index()), prover.maybePi(load.index()));
+        Assert.assertEquals("elimination array_two_load " + prover, ArrayBoundsCheckEliminationPhase.DemandProver.Lattice.True, prover.prove(load.index(), -1));
     }
 }
