@@ -632,6 +632,9 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         }
 
         private Lattice prove(EssaVar v, long c) {
+            if (v.base() instanceof ArrayLengthNode len) {
+                v = new EssaVar.LengthNodeVar(len.array());
+            }
             var indent = " ".repeat(depth);
             System.out.printf("%sprove: %s -> %s (i.e. (%s) - (%s) <= %d)%n", indent, a, v, v, a, c);
             depth++;
