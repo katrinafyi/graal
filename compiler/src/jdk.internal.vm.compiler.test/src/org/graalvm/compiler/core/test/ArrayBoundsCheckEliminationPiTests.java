@@ -1,12 +1,9 @@
 package org.graalvm.compiler.core.test;
 
-import jdk.vm.ci.meta.DeoptimizationReason;
 import jdk.vm.ci.meta.ResolvedJavaMethod;
 import org.graalvm.compiler.debug.DebugContext;
 import org.graalvm.compiler.graph.Node;
-import org.graalvm.compiler.nodes.GuardNode;
 import org.graalvm.compiler.nodes.StructuredGraph;
-import org.graalvm.compiler.nodes.extended.BytecodeExceptionNode;
 import org.graalvm.compiler.nodes.java.LoadIndexedNode;
 import org.graalvm.compiler.nodes.spi.CoreProviders;
 import org.graalvm.compiler.phases.common.ArrayBoundsCheckEliminationPhase;
@@ -65,7 +62,7 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
         Assert.assertEquals(1, loads.size());
         var load = loads.get(0);
         var prover = phase.provers.get(0);
-        Assert.assertEquals("pi correctness two_if", pi(pi(load.index())), prover.maybePi(load.index()));
+        Assert.assertEquals("pi correctness two_if", pi(pi(load.index())), prover.resolveNode(load.index()));
         Assert.assertEquals("elimination two_if", ArrayBoundsCheckEliminationPhase.DemandProver.Lattice.True, prover.prove(load.index(), -1));
     }
     @Test
@@ -76,7 +73,7 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
         Assert.assertEquals(1, loads.size());
         var load = loads.get(0);
         var prover = phase.provers.get(0);
-        Assert.assertEquals("pi one_if", pi(load.index()), prover.maybePi(load.index()));
+        Assert.assertEquals("pi one_if", pi(load.index()), prover.resolveNode(load.index()));
         Assert.assertEquals("non-elimination two_if", ArrayBoundsCheckEliminationPhase.DemandProver.Lattice.False, prover.prove(load.index(), -1));
     }
 
@@ -94,7 +91,7 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
         Assert.assertEquals(2, loads.size());
         var load = loads.get(0);
         var prover = phase.provers.get(1);
-        Assert.assertEquals("pi array_load second load", pi(load.index()), prover.maybePi(load.index()));
+        Assert.assertEquals("pi array_load second load", pi(load.index()), prover.resolveNode(load.index()));
         Assert.assertEquals("elimination array_two_load " + prover, ArrayBoundsCheckEliminationPhase.DemandProver.Lattice.True, prover.prove(load.index(), -1));
     }
 }
