@@ -94,4 +94,43 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
         Assert.assertEquals("pi array_load second load", pi(load.index()), prover.resolveNode(load.index()));
         Assert.assertEquals("elimination array_two_load " + prover, ArrayBoundsCheckEliminationPhase.DemandProver.Lattice.True, prover.prove(load.index(), -1));
     }
+
+    public static int bubblesort(int[] a) {
+        var limit = a.length;
+        var st = -1;
+        var s = 0;
+        while (st < limit) {
+            st++;
+            limit--;
+            for (var j = st; j < limit; j++) {
+                if (a[j] > a[j+1]) {
+                    s += 1;
+//                    var tmp = a[j];
+//                    a[j] = a[j+1];
+//                    a[j+1] = tmp;
+                }
+            }
+
+//            for (var j = limit; --j >= st; ) {
+//                if (a[j] > a[j+1]) {
+//                    var tmp = a[j];
+//                    a[j] = a[j+1];
+//                    a[j+1] = tmp;
+//                }
+//            }
+        }
+        return s;
+    }
+
+    @Test
+    public void test_bubblesort() {
+        prepare("bubblesort");
+        System.out.println(phase.provers);
+        Assert.assertEquals(2, phase.provers.size());
+        for (int i = 0; i < phase.provers.size(); i++) {
+            var p = phase.provers.get(i);
+            Assert.assertEquals("redundant: " + p.load, ArrayBoundsCheckEliminationPhase.DemandProver.Lattice.Reduced, p.prove(p.load.index(), -1));
+        }
+    }
+
 }

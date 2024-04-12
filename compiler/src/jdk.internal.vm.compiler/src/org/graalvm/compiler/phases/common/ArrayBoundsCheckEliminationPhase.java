@@ -543,6 +543,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         private final EconomicMap<EssaVar, Long> active = EconomicMap.create();
         /** map of Graal nodes to their ESSA var, possibly adding pi nodes. */
         private final EconomicMap<Node, EssaVar> piMap = EconomicMap.create();
+        public final LoadIndexedNode load;
         private int depth = 0;
 
         public enum Lattice {
@@ -567,6 +568,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
         // XXX: good for one demand-prove only!
         public DemandProver(EssaVar.LengthNodeVar a, LoadIndexedNode load, Iterable<PiContext> piContexts) {
+            this.load = load;
             this.piEssa = EconomicMap.create();
             this.a = a;
             System.out.println("\nDemandProver init: array=" + a + ", load=" + load);
@@ -588,6 +590,10 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
          * Other variants are unchanged.
          */
         private EssaVar resolveEssaVar(EssaVar v) {
+            // late-stage canonicalisation of array length nodes.
+            if (v.base() instanceof ArrayLengthNode len) {
+                return new EssaVar.LengthNodeVar(len.array());
+            }
             if (v instanceof EssaVar.Pi pi) {
                 assert pi.equals(EssaVar.pi(pi.base())) : "must have exactly one pi level";
                 return resolveNode(pi.base());
@@ -612,7 +618,8 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                     piEssa.put(Pair.create(baseVar, piNew), 0L);
                     piMap.put(base, piNew);
                 }
-
+            }
+            for (var context : piContexts) {
                 for (var it = context.overlay.getEntries(); it.advance(); ) {
                     piEssa.put(both(this::resolveEssaVar, it.getKey()), it.getValue());
                     System.out.printf("adding overlay: %s, %s%n", it.getKey(), it.getValue());
@@ -633,7 +640,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 v = new EssaVar.LengthNodeVar(len.array());
             }
             var indent = " ".repeat(depth);
-            System.out.printf("%sprove: %s -> %s (i.e. (%s) - (%s) <= %d)%n", indent, a, v, v, a, c);
+            System.out.printf("%sprove: -> %s (i.e. len - (%s) <= %d)%n", indent, v, v, c);
             depth++;
             var result = prove(v, c, indent);
             depth--;
@@ -652,14 +659,26 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 var e = proven.getKey();
                 var ret = proven.getValue();
                 // same or stronger difference was already proven
-                if (e <= c && ret == Lattice.True) return Lattice.True;
+                if (e <= c && ret == Lattice.True) {
+                    System.out.printf("%s  by already proven stronger difference,%n", indent);
+                    return Lattice.True;
+                }
                 // same or weaker difference was already disproved
-                if (e >= c && ret == Lattice.False) return Lattice.False;
+                if (e >= c && ret == Lattice.False) {
+                    System.out.printf("%s  by already disproven weaker difference,%n", indent);
+                    return Lattice.False;
+                }
                 // v is on a cycle that was reduced for same or stronger difference
-                if (e <= c && ret == Lattice.Reduced) return Lattice.Reduced;
+                if (e <= c && ret == Lattice.Reduced) {
+                    System.out.printf("%s  by already reduced stronger difference,%n", indent);
+                    return Lattice.Reduced;
+                }
             }
             // traversal reached the source vertex, success if a - a <= c
-            if (a.base().equals(v.base()) && c >= 0) return Lattice.True;
+            if (a.base().equals(v.base()) && c >= 0) {
+                System.out.printf("%s  by base case,%n", indent);
+                return Lattice.True;
+            }
 
             // if no constraint exist on the value of v, we fail
             // recall: edge u -c-> v constrains v by v - u <= c.
@@ -670,14 +689,27 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                     break;
                 }
             }
-            if (!has) return Lattice.False;
+            if (!has) {
+                System.out.printf("%s  by no incoming constraints,%n", indent);
+                return Lattice.False;
+            }
 
             // a cycle at v
             if (active.containsKey(v)) {
                 // an amplifying cycle which can become arbitrarily large
-                if (c > active.get(v)) return Lattice.False;
-                // harmless cycle
-                else return Lattice.Reduced;
+                /* TODO bug in paper???
+                    paper had >, but this seems backwards.
+                    a new c value which is smaller indicates a request to prove a stronger statement, i.e. the variable is incrementing.
+                    empirically, the results match with this interpretation.
+                 */
+                if (c < active.get(v)) {
+                    System.out.printf("%s  by amplifying cycle,%n", indent);
+                    return Lattice.False;
+                } else {
+                    // harmless cycle
+                    System.out.printf("%s  by harmless cycle,%n", indent);
+                    return Lattice.Reduced;
+                }
             }
             active.put(v, c);
             System.out.printf("%s... parents of %s%n", indent, v);
