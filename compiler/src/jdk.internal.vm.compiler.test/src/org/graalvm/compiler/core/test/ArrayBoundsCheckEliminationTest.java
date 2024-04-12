@@ -2,12 +2,9 @@ package org.graalvm.compiler.core.test;
 
 import jdk.vm.ci.meta.DeoptimizationReason;
 import jdk.vm.ci.meta.ResolvedJavaMethod;
-import org.graalvm.collections.EconomicMap;
 import org.graalvm.compiler.api.replacements.SnippetReflectionProvider;
 import org.graalvm.compiler.api.test.Graal;
 import org.graalvm.compiler.core.phases.BaseTier;
-import org.graalvm.compiler.core.phases.HighTier;
-import org.graalvm.compiler.core.phases.MidTier;
 import org.graalvm.compiler.debug.DebugContext;
 import org.graalvm.compiler.graph.Node;
 import org.graalvm.compiler.loop.phases.ConvertDeoptimizeToGuardPhase;
@@ -20,11 +17,8 @@ import org.graalvm.compiler.phases.common.CanonicalizerPhase;
 import org.graalvm.compiler.phases.common.ConditionalEliminationPhase;
 import org.graalvm.compiler.phases.common.DeadCodeEliminationPhase;
 import org.graalvm.compiler.phases.common.FloatingReadPhase;
-import org.graalvm.compiler.phases.common.GuardLoweringPhase;
 import org.graalvm.compiler.phases.common.HighTierLoweringPhase;
 import org.graalvm.compiler.phases.common.IterativeConditionalEliminationPhase;
-import org.graalvm.compiler.phases.common.MidTierLoweringPhase;
-import org.graalvm.compiler.phases.tiers.HighTierContext;
 import org.graalvm.compiler.printer.BinaryGraphPrinter;
 import org.junit.Assert;
 import org.junit.Test;
@@ -98,7 +92,7 @@ public class ArrayBoundsCheckEliminationTest extends GraalCompilerTest {
         CoreProviders context = getProviders();
         CanonicalizerPhase canonicalizer = createCanonicalizerPhase();
         CanonicalizerPhase canonicalizer2 = createCanonicalizerPhase();
-        try (DebugContext.Scope scope = debug.scope("ABCETest", graph)) {
+        try (DebugContext.Scope ignored = debug.scope("ABCETest", graph)) {
             prepareGraph(graph, canonicalizer, context, false);
             new ArrayBoundsCheckEliminationPhase().apply(graph, context);
             canonicalizer2.apply(graph, context);

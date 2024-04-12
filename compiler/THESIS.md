@@ -32,3 +32,13 @@ incorrectly pointing to phis when they should not be.
 we are making progress, but there is a problem with the reduced loop detection.
 the graph matches very closely with the paper example, but the logic is wrong i
 believe.
+
+2024-04-12: we have working pi node virtualisation and passing the example.
+we need to propagate this information to the lowering phase, e.g. by an
+attribute on LoadIndexed. we also need to implement more tests, including some
+which might fail.
+
+to do:
+- handling of inequalities between constants
+- lower bounds checks???
+- benchmarking.

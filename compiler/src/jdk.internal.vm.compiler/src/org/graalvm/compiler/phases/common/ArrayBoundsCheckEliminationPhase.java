@@ -27,7 +27,6 @@ package org.graalvm.compiler.phases.common;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
@@ -39,7 +38,6 @@ import jdk.vm.ci.meta.PrimitiveConstant;
 import org.graalvm.collections.EconomicMap;
 import org.graalvm.collections.EconomicSet;
 import org.graalvm.collections.Pair;
-import org.graalvm.compiler.debug.DebugContext;
 import org.graalvm.compiler.graph.Node;
 import org.graalvm.compiler.graph.NodeFlood;
 import org.graalvm.compiler.graph.NodeMap;
@@ -54,7 +52,6 @@ import org.graalvm.compiler.nodes.calc.AddNode;
 import org.graalvm.compiler.nodes.calc.IntegerLessThanNode;
 import org.graalvm.compiler.nodes.cfg.ControlFlowGraph;
 import org.graalvm.compiler.nodes.cfg.HIRBlock;
-import org.graalvm.compiler.nodes.extended.AnchoringNode;
 import org.graalvm.compiler.nodes.java.ArrayLengthNode;
 import org.graalvm.compiler.nodes.java.LoadIndexedNode;
 import org.graalvm.compiler.options.Option;
@@ -139,7 +136,6 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             return;
         }
 
-
         // just printing the cfg
         cfg = ControlFlowGraph.compute(graph, true, true, true, true);
         for (var bb : cfg.getBlocks()) {
@@ -197,13 +193,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                     // X < Y
                     var x = ltnode.getX();
                     var y = ltnode.getY();
-
-                    // for both true+false, relate the pi vars to their original vars.
-//                    for (var map : List.of(truemap, falsemap)) {
-//                        for (var v : List.of(x, y)) {
-//                            essa.put(Pair.create(v, map.get(v)), 0L);
-//                        }
-//                    }
+                    // pi variables inserted via {@link PiContext#piBases}
 
                     // pi(X) < pi(Y)  <==> pi(X) - pi(Y) <= - 1
                     tpi.overlay.put(Pair.create(EssaVar.pi(y), EssaVar.pi(x)), -1L);
@@ -217,10 +207,6 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                     topContext.overlay.put(Pair.create(EssaVar.pi(v), EssaVar.pure(phinode)), 0L);
                 }
             } else if (node instanceof LoadIndexedNode loadnode) {
-//                var canonlen = Objects.requireNonNull(canonicalLengths.get(loadnode.array()));
-//                piContexts.get(loadnode).overlay.put(
-//                        Pair.create(EssaVar.pure(canonlen), EssaVar.pi(loadnode.index())), -1L
-//                );
                 piContexts.get(loadnode).overlay.put(
                         Pair.create(new EssaVar.LengthNodeVar(loadnode.array()), EssaVar.pi(loadnode.index())), -1L
                 );
@@ -229,20 +215,6 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
             System.out.println(node.getClass() + " " +  node);
         }
-
-//        EconomicMap<Pair<Node, Node>, Long> replaced = EconomicMap.create();
-//        for (var it = essa.getEntries(); it.advance() ;) {
-//            var key = it.getKey();
-//            var value = it.getValue();
-//            var canon = Pair.create(canonicalizeEssaNode(key.getLeft()), canonicalizeEssaNode(key.getRight()));
-//            if (!Objects.equals(key, canon)) {
-//                it.remove();
-//                replaced.put(canon, value);
-//            }
-//        }
-//        essa.putAll(replaced);
-//        Collections.reverse(boundsChecks);
-//        boundsChecks = boundsChecks.subList(0, 1); // XXX
 
         System.out.println("PI CONTEXT: " + piContexts);
         int i = 2;
@@ -261,12 +233,6 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 }
             }
 
-//            System.out.println("DOT! digraph G {");
-//            for (var it = essa.getEntries(); it.advance(); ) {
-//                System.out.printf("DOT! \"%s\" -> \"%s\" [ label=\"%d\" ];%n", it.getKey().getLeft(), it.getKey().getRight(), it.getValue());
-//            }
-//            System.out.println("DOT! }");
-
             System.out.println("preparing to eliminate check for " + boundsCheck);
             var prover = new DemandProver(lengthnode, boundsCheck, piContextsInScope);
             provers.add(prover);
@@ -279,48 +245,6 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             System.out.printf("DOT%d! }%n", i);
             i++;
         }
-
-
-
-        // following is from DCE
-        NodeFlood flood = graph.createNodeFlood();
-        int totalNodeCount = graph.getNodeCount();
-        flood.add(graph.start());
-        iterateSuccessorsAndInputs(flood);
-        boolean changed = false;
-        for (GuardNode guard : graph.getNodes(GuardNode.TYPE)) {
-            if (flood.isMarked(guard.getAnchor().asNode())) {
-                flood.add(guard);
-                changed = true;
-            }
-        }
-        if (changed) {
-            iterateSuccessorsAndInputs(flood);
-        }
-        int totalMarkedCount = flood.getTotalMarkedCount();
-        if (totalNodeCount == totalMarkedCount) {
-            // All nodes are live => nothing more to do.
-            return;
-        } else {
-            // Some nodes are not marked alive and therefore dead => proceed.
-            assert totalNodeCount > totalMarkedCount;
-        }
-
-//        deleteNodes(flood, graph);
-    }
-
-    private PiContext makePiMap(FixedNode begin, HIRBlock beginBlock, AnchoringNode anchor, ValueNode x, ValueNode y, LogicNode cond, boolean whichBranch) {
-//        var graph = cond.graph();
-//        var guard = new GuardNode(cond, anchor, DeoptimizationReason.None, DeoptimizationAction.InvalidateRecompile, !whichBranch, null, null);
-//        guard = graph.addOrUnique(guard);
-//
-//        EconomicMap<Node, Node> em = EconomicMap.of(
-//                x, graph.addOrUnique(PiNode.create(x, x.stamp(NodeView.DEFAULT), guard)),
-//                y, graph.addOrUnique(PiNode.create(y, y.stamp(NodeView.DEFAULT), guard)));
-//        assert !Objects.equals(x, em.get(x)) : "pi node not created for " + x;
-//        assert !Objects.equals(y, em.get(y)) : "pi node not created for " + y;
-
-        return new PiContext(List.of(x,y), begin, beginBlock);
     }
 
     static class PiContext {
@@ -422,7 +346,8 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 PiContext pi;
                 AbstractMergeNode tend, fend;
 
-                pi = makePiMap(truesucc, nodetoblock.get(truesucc), truesucc, x, y, cond, true);
+                HIRBlock beginBlock1 = nodetoblock.get(truesucc);
+                pi = new PiContext(List.of(x, y), truesucc, beginBlock1);
                 replacements.push(pi);
                 System.out.println(" begin tcase: " + truesucc);
                 piContexts.put(pi.begin, pi);
@@ -433,7 +358,8 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 System.out.println("piContexts: " + pi.begin + " --> " + pi);
                 // pop multiple contexts since array accesses may have inserted pi variables too.
 
-                pi = makePiMap(falsesucc, nodetoblock.get(falsesucc), falsesucc, x, y, cond, false);
+                HIRBlock beginBlock = nodetoblock.get(falsesucc);
+                pi = new PiContext(List.of(x, y), falsesucc, beginBlock);
                 replacements.push(pi);
                 System.out.println(" begin fcase: " + falsesucc);
                 piContexts.put(pi.begin, pi);
@@ -639,12 +565,14 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             if (v.base() instanceof ArrayLengthNode len) {
                 v = new EssaVar.LengthNodeVar(len.array());
             }
-            var indent = " ".repeat(depth);
-            System.out.printf("%sprove: -> %s (i.e. len - (%s) <= %d)%n", indent, v, v, c);
+            var startindent = depth > 0 ? "|".repeat(depth-1) + "/" : "";
+            var finishindent = depth > 0 ? "|".repeat(depth-1) + "\\" : "";
+            var indent = "|".repeat(depth);
+            System.out.printf("%sprove: -> %s (i.e. len - (%s) <= %d)%n", startindent, v, v, c);
             depth++;
             var result = prove(v, c, indent);
             depth--;
-            System.out.printf("%s= %s%n", indent, result);
+            System.out.printf("%s= %s%n", finishindent, result);
             return result;
         }
 
@@ -732,60 +660,6 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             }
             active.removeKey(v);
             return cmap.get(c);
-        }
-    }
-
-    private static void iterateSuccessorsAndInputs(NodeFlood flood) {
-        Node.EdgeVisitor consumer = new Node.EdgeVisitor() {
-            @Override
-            public Node apply(Node n, Node succOrInput) {
-                assert succOrInput.isAlive() : "dead successor or input " + succOrInput + " in " + n;
-                flood.add(succOrInput);
-                return succOrInput;
-            }
-        };
-
-        for (Node current : flood) {
-            if (current instanceof AbstractEndNode) {
-                AbstractEndNode end = (AbstractEndNode) current;
-                flood.add(end.merge());
-            } else {
-                current.applySuccessors(consumer);
-                current.applyInputs(consumer);
-            }
-        }
-    }
-
-    private static void deleteNodes(NodeFlood flood, StructuredGraph graph) {
-        Node.EdgeVisitor consumer = new Node.EdgeVisitor() {
-            @Override
-            public Node apply(Node n, Node input) {
-                if (input.isAlive() && flood.isMarked(input)) {
-                    input.removeUsage(n);
-                }
-                return input;
-            }
-        };
-
-        for (Node node : graph.getNodes()) {
-            if (!flood.isMarked(node)) {
-                node.markDeleted();
-                node.applyInputs(consumer);
-                graph.getOptimizationLog().report(DebugContext.VERY_DETAILED_LEVEL, ArrayBoundsCheckEliminationPhase.class, "NodeRemoval", node);
-            }
-        }
-    }
-
-    public static class Instance implements ControlFlowGraph.RecursiveVisitor<Integer> {
-
-        @Override
-        public Integer enter(HIRBlock b) {
-            return null;
-        }
-
-        @Override
-        public void exit(HIRBlock b, Integer value) {
-
         }
     }
 }

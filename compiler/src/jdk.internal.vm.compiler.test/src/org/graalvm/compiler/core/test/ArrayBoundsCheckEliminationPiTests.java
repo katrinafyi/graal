@@ -7,6 +7,8 @@ import org.graalvm.compiler.nodes.StructuredGraph;
 import org.graalvm.compiler.nodes.java.LoadIndexedNode;
 import org.graalvm.compiler.nodes.spi.CoreProviders;
 import org.graalvm.compiler.phases.common.ArrayBoundsCheckEliminationPhase;
+import org.graalvm.compiler.phases.common.CanonicalizerPhase;
+import org.graalvm.compiler.phases.common.IterativeConditionalEliminationPhase;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -20,11 +22,15 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
     private void prepare(String testMethod) {
         ResolvedJavaMethod meth = getResolvedJavaMethod(ArrayBoundsCheckEliminationPiTests.class, testMethod);
         StructuredGraph graph = parseEager(meth, StructuredGraph.AllowAssumptions.NO);
-        CoreProviders context = getProviders();
 
         DebugContext debug = graph.getDebug();
         debug.dump(DebugContext.BASIC_LEVEL, graph, "Graph");
-        try (DebugContext.Scope scope = debug.scope("ABCETest", graph)) {
+
+        CoreProviders context = getProviders();
+        CanonicalizerPhase canonicalizer = createCanonicalizerPhase();
+        try (DebugContext.Scope ignored = debug.scope("ABCETest", graph)) {
+            canonicalizer.apply(graph, context);
+            new IterativeConditionalEliminationPhase(canonicalizer, true).apply(graph, context);
             phase = new ArrayBoundsCheckEliminationPhase();
             phase.apply(graph, context);
         } catch (Throwable e) {
@@ -111,13 +117,14 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
                 }
             }
 
-//            for (var j = limit; --j >= st; ) {
-//                if (a[j] > a[j+1]) {
+            for (var j = limit; --j >= st; ) {
+                if (a[j] > a[j+1]) {
+                    s += 1;
 //                    var tmp = a[j];
 //                    a[j] = a[j+1];
 //                    a[j+1] = tmp;
-//                }
-//            }
+                }
+            }
         }
         return s;
     }
@@ -126,10 +133,27 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
     public void test_bubblesort() {
         prepare("bubblesort");
         System.out.println(phase.provers);
-        Assert.assertEquals(2, phase.provers.size());
+        Assert.assertEquals(4, phase.provers.size());
         for (int i = 0; i < phase.provers.size(); i++) {
             var p = phase.provers.get(i);
             Assert.assertEquals("redundant: " + p.load, ArrayBoundsCheckEliminationPhase.DemandProver.Lattice.Reduced, p.prove(p.load.index(), -1));
+        }
+    }
+
+    public static int constant_f(int[] a) {
+        if (!(10 < a.length))
+            return -1;
+        return a[5];
+    }
+
+    @Test
+    public void test_constant() {
+        prepare("constant_f");
+        System.out.println(phase.provers);
+        Assert.assertEquals(1, phase.provers.size());
+        for (int i = 0; i < phase.provers.size(); i++) {
+            var p = phase.provers.get(i);
+            Assert.assertEquals("redundant: " + p.load, ArrayBoundsCheckEliminationPhase.DemandProver.Lattice.True, p.prove(p.load.index(), -1));
         }
     }
 

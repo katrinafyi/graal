@@ -9,7 +9,7 @@ public class ArrayBoundsCheckEliminationTestCases {
     }
 
     public static int constant_f(int[] a) {
-        if (!(0 <= 5 && 5 < a.length))
+        if (!(10 < a.length))
             return -1;
         return a[5];
     }
@@ -296,35 +296,65 @@ public class ArrayBoundsCheckEliminationTestCases {
         return s;
     }
 
+    @SuppressWarnings("ResultOfMethodCallIgnored")
     public static void main(String[] args) throws InvocationTargetException, IllegalAccessException {
         int[] ints = {1,2,3,4, 5, 6, 7, 8};
-        int a = 1;  
-        constant_p(ints);
-        constant_f(ints);
-        param_p(ints, a);
-        param_f(ints, a);
-        param_f_trans(ints, a, a, a);
-        loop1_p(ints, a);
-        loop1_f(ints);
-        loop1plus5_p(ints, a);
-        loop1plus5_f(ints);
-        loop1plusc_p(ints, a, a);
-        loop1plusc_f(ints, a);
-        loop1double_p(ints, a);
-        loop1double_f(ints, a);
-        loop2i_p(ints, a, a);
-        loop2i_f(ints);
-        loop2triangular_p(ints, a, a);
-        loop2trianglular_f(ints);
-        loop2lowertri_p(ints, a, a);
-        loop2lowertri_f(ints);
-        loop2uppertri_p(ints, a, a);
-        loop2uppertri_f(ints);
-        loop2sum_p(ints, a, a);
-        loop2sum_f(ints);
-        loop2sumplus5_p(ints, a, a);
-        loop2sumplus5_f(ints);
-        loop2addmul_p(ints, a, a);
-        loop2addmul_f(ints);
+        int a = 1;
+        switch (args.length) {
+            case 10:
+                constant_p(ints);
+            case 11:
+                constant_f(ints);
+            case 12:
+                param_p(ints, a);
+            case 13:
+                param_f(ints, a);
+            case 14:
+                param_f_trans(ints, a, a, a);
+            case 15:
+                loop1_p(ints, a);
+            case 16:
+                loop1_f(ints);
+            case 17:
+                loop1plus5_p(ints, a);
+            case 18:
+                loop1plus5_f(ints);
+            case 19:
+                loop1plusc_p(ints, a, a);
+            case 20:
+                loop1plusc_f(ints, a);
+            case 21:
+                loop1double_p(ints, a);
+            case 22:
+                loop1double_f(ints, a);
+            case 23:
+                loop2i_p(ints, a, a);
+            case 24:
+                loop2i_f(ints);
+            case 25:
+                loop2triangular_p(ints, a, a);
+            case 26:
+                loop2trianglular_f(ints);
+            case 27:
+                loop2lowertri_p(ints, a, a);
+            case 28:
+                loop2lowertri_f(ints);
+            case 29:
+                loop2uppertri_p(ints, a, a);
+            case 30:
+                loop2uppertri_f(ints);
+            case 31:
+                loop2sum_p(ints, a, a);
+            case 32:
+                loop2sum_f(ints);
+            case 33:
+                loop2sumplus5_p(ints, a, a);
+            case 34:
+                loop2sumplus5_f(ints);
+            case 35:
+                loop2addmul_p(ints, a, a);
+            case 36:
+                loop2addmul_f(ints);
+        }
     }
 }
