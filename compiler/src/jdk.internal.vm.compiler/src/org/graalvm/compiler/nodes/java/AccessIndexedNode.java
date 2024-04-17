@@ -50,6 +50,8 @@ public abstract class AccessIndexedNode extends AccessArrayNode implements Lower
     protected final JavaKind elementKind;
     protected final LocationIdentity location;
 
+    protected boolean redundant = false;
+
     public ValueNode index() {
         return index;
     }
@@ -74,6 +76,14 @@ public abstract class AccessIndexedNode extends AccessArrayNode implements Lower
 
     public GuardingNode getBoundsCheck() {
         return boundsCheck;
+    }
+
+    public boolean isRedundant() {
+        return redundant;
+    }
+
+    public void setRedundant(boolean x) {
+        redundant = x;
     }
 
     /**
