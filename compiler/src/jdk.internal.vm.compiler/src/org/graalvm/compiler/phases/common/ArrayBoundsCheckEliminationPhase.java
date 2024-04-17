@@ -24,6 +24,8 @@
  */
 package org.graalvm.compiler.phases.common;
 
+import java.io.OutputStream;
+import java.io.PrintStream;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -61,11 +63,15 @@ import org.graalvm.compiler.phases.Phase;
 
 public class ArrayBoundsCheckEliminationPhase extends Phase {
 
+    private static PrintStream out;
+
     public static class Options {
 
         // @formatter:off
         @Option(help = "Disable array bounds check elimations", type = OptionType.Debug)
         public static final OptionKey<Boolean> DisableABCE = new OptionKey<>(true);
+        @Option(help = "Disable array bounds check elimations", type = OptionType.Debug)
+        public static final OptionKey<Boolean> DebugABCE = new OptionKey<>(true);
         // @formatter:on
     }
 
@@ -125,15 +131,16 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         if (disabled || optional && Options.DisableABCE.getValue(graph.getOptions())) {
             return;
         }
+        out = Options.DebugABCE.getValue(graph.getOptions()) ? System.out : new PrintStream(OutputStream.nullOutputStream());
 
         // just printing the cfg
         cfg = ControlFlowGraph.compute(graph, true, true, true, true);
         for (var bb : cfg.getBlocks()) {
-            System.out.println(bb.toString(Verbosity.All));
-            System.out.println("ended by: " + bb.getEndNode());
+            out.println(bb.toString(Verbosity.All));
+            out.println("ended by: " + bb.getEndNode());
             for (var node : bb.getNodes())
-                System.out.println(node);
-            System.out.println();
+                out.println(node);
+            out.println();
         }
 
         final ArrayDeque<PiContext> deque = new ArrayDeque<>();
@@ -218,7 +225,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 boundsChecks.add(loadnode);
             }
 
-            System.out.println(node.getClass() + " " +  node);
+            out.println(node.getClass() + " " +  node);
         }
 
         List<ConstantNode> constantsList = new ArrayList<>();
@@ -236,7 +243,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             topContext.overlay.put(Pair.create(EssaVar.pi(r), EssaVar.pi(l)), lv-rv);
         }
 
-        System.out.println("PI CONTEXT: " + piContexts);
+        out.println("PI CONTEXT: " + piContexts);
         int i = 2;
         for (var boundsCheck : boundsChecks) {
             // begin eliminating bounds checks
@@ -249,23 +256,23 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 var ctx = it.getValue();
                 if (ctx.fullBlocks.contains(theblock) || ctx.beginNodes.contains(boundsCheck)) {
                     piContextsInScope.add(ctx);
-                    System.out.println(ctx.beginNodes);
+                    out.println(ctx.beginNodes);
                 }
             }
 
-            System.out.println("preparing to eliminate check for " + boundsCheck);
+            out.println("preparing to eliminate check for " + boundsCheck);
             var prover = new DemandProver(lengthnode, boundsCheck, piContextsInScope);
             provers.add(prover);
             var result = prover.prove(indexnode, -1L);
-            System.out.println(result);
+            out.println(result);
             if (result != DemandProver.Lattice.False)
                 boundsCheck.setRedundant(true);
 
-            System.out.printf("DOT%d! digraph G {%n", i);
+            out.printf("DOT%d! digraph G {%n", i);
             for (var it = prover.piEssa.getEntries(); it.advance(); ) {
-                System.out.printf("DOT%d! \"%s\" -> \"%s\" [ label=\"%d\" ];%n", i, it.getKey().getLeft(), it.getKey().getRight(), it.getValue());
+                out.printf("DOT%d! \"%s\" -> \"%s\" [ label=\"%d\" ];%n", i, it.getKey().getLeft(), it.getKey().getRight(), it.getValue());
             }
-            System.out.printf("DOT%d! }%n", i);
+            out.printf("DOT%d! }%n", i);
             i++;
         }
     }
@@ -320,7 +327,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
             int numContexts = 0;
             if (b.getBeginNode().predecessor() instanceof IfNode ifnode && ifnode.condition() instanceof BinaryOpLogicNode binop) {
-                System.out.println("enter: IF " + b);
+                out.println("enter: IF " + b);
                 numContexts += addContext(new PiContext(List.of(binop.getX(), binop.getY()), b.getBeginNode(), b));
             }
 
@@ -335,7 +342,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
         @Override
         public void exit(HIRBlock b, Integer count) {
-            System.out.println("exit: " + b);
+            out.println("exit: " + b);
             for (var i = 0; i < count; i++) contextStack.pop();
         }
     }
@@ -401,7 +408,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             this.load = load;
             this.piEssa = EconomicMap.create();
             this.a = a;
-            System.out.println("\nDemandProver init: array=" + a + ", load=" + load);
+            out.println("\nDemandProver init: array=" + a + ", load=" + load);
             createPiEssa(piContexts);
         }
 
@@ -439,12 +446,12 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             assert piEssa.isEmpty();
 
             for (var context : piContexts) {
-                System.out.println("adding PiContext: " + context);
+                out.println("adding PiContext: " + context);
                 // add virtual pi nodes.
                 for (var base : context.piBases) {
                     var baseVar = resolveNode(base);
                     var piNew = EssaVar.pi(baseVar);
-                    System.out.printf("adding pi: pi %s = %s%n", base, piNew);
+                    out.printf("adding pi: pi %s = %s%n", base, piNew);
                     piEssa.put(Pair.create(baseVar, piNew), 0L);
                     piMap.put(base, piNew);
                 }
@@ -452,7 +459,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             for (var context : piContexts) {
                 for (var it = context.overlay.getEntries(); it.advance(); ) {
                     piEssa.put(both(this::resolveEssaVar, it.getKey()), it.getValue());
-                    System.out.printf("adding overlay: %s, %s%n", it.getKey(), it.getValue());
+                    out.printf("adding overlay: %s, %s%n", it.getKey(), it.getValue());
                 }
             }
         }
@@ -473,11 +480,11 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             var startindent = depth > 0 ? "|".repeat(depth-1) + "/" : "";
             var finishindent = depth > 0 ? "|".repeat(depth-1) + "\\" : "";
             var indent = "|".repeat(depth);
-            System.out.printf("%sprove: -> %s (i.e. len - (%s) <= %d)%n", startindent, v, v, c);
+            out.printf("%sprove: -> %s (i.e. len - (%s) <= %d)%n", startindent, v, v, c);
             depth++;
             var result = prove(v, c, indent);
             depth--;
-            System.out.printf("%s= %s%n", finishindent, result);
+            out.printf("%s= %s%n", finishindent, result);
             return result;
         }
 
@@ -493,23 +500,23 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 var ret = proven.getValue();
                 // same or stronger difference was already proven
                 if (e <= c && ret == Lattice.True) {
-                    System.out.printf("%s  by already proven stronger difference,%n", indent);
+                    out.printf("%s  by already proven stronger difference,%n", indent);
                     return Lattice.True;
                 }
                 // same or weaker difference was already disproved
                 if (e >= c && ret == Lattice.False) {
-                    System.out.printf("%s  by already disproven weaker difference,%n", indent);
+                    out.printf("%s  by already disproven weaker difference,%n", indent);
                     return Lattice.False;
                 }
                 // v is on a cycle that was reduced for same or stronger difference
                 if (e <= c && ret == Lattice.Reduced) {
-                    System.out.printf("%s  by already reduced stronger difference,%n", indent);
+                    out.printf("%s  by already reduced stronger difference,%n", indent);
                     return Lattice.Reduced;
                 }
             }
             // traversal reached the source vertex, success if a - a <= c
             if (a.base().equals(v.base()) && c >= 0) {
-                System.out.printf("%s  by base case,%n", indent);
+                out.printf("%s  by base case,%n", indent);
                 return Lattice.True;
             }
 
@@ -523,7 +530,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 }
             }
             if (!has) {
-                System.out.printf("%s  by no incoming constraints,%n", indent);
+                out.printf("%s  by no incoming constraints,%n", indent);
                 return Lattice.False;
             }
 
@@ -536,16 +543,16 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                     empirically, the results match with this interpretation.
                  */
                 if (c <= active.get(v)) {
-                    System.out.printf("%s  by amplifying cycle,%n", indent);
+                    out.printf("%s  by amplifying cycle,%n", indent);
                     return Lattice.False;
                 } else {
                     // harmless cycle
-                    System.out.printf("%s  by harmless cycle,%n", indent);
+                    out.printf("%s  by harmless cycle,%n", indent);
                     return Lattice.Reduced;
                 }
             }
             active.put(v, c);
-            System.out.printf("%s... parents of %s%n", indent, v);
+            out.printf("%s... parents of %s%n", indent, v);
             if (v instanceof EssaVar.NodeVar nodevar && nodevar.n instanceof PhiNode) {
                 for (var it = piEssa.getEntries(); it.advance(); ) {
                     if (!it.getKey().getRight().equals(v)) continue;
