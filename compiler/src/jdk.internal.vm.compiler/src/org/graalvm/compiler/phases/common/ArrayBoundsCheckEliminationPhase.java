@@ -27,7 +27,6 @@ package org.graalvm.compiler.phases.common;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.List;
@@ -41,13 +40,11 @@ import org.graalvm.collections.EconomicMap;
 import org.graalvm.collections.EconomicSet;
 import org.graalvm.collections.Pair;
 import org.graalvm.compiler.graph.Node;
-import org.graalvm.compiler.graph.NodeFlood;
 import org.graalvm.compiler.graph.NodeMap;
 import org.graalvm.compiler.nodeinfo.Verbosity;
 import org.graalvm.compiler.nodes.AbstractEndNode;
 import org.graalvm.compiler.nodes.ConstantNode;
 import org.graalvm.compiler.nodes.GraphState;
-import org.graalvm.compiler.nodes.GuardNode;
 import org.graalvm.compiler.nodes.*;
 import org.graalvm.compiler.nodes.StructuredGraph;
 import org.graalvm.compiler.nodes.calc.AddNode;
@@ -143,7 +140,13 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         var topContext = new PiContext(List.of(), cfg.getStartBlock().getBeginNode(), cfg.getStartBlock());
         topContext.fullBlocks.addAll(Arrays.asList(cfg.getBlocks()));
         deque.push(topContext);
-        var end = addPiNodes(cfg.getStartBlock(), deque);
+//        addPiNodes(cfg.getStartBlock(), deque);
+
+        var visitor = new AddPiNodesVisitor();
+        cfg.visitDominatorTree(visitor,false);
+        for (var ctx : visitor.allContexts) {
+            piContexts.put(ctx.begin, ctx);
+        }
 
 //        ControlFlowGraph.RecursiveVisitor<?> visitor = createVisitor(graph, cfg, blockToNodes, nodeToBlock, context);
 //        cfg.visitDominatorTree(visitor, graph.isBeforeStage(GraphState.StageFlag.VALUE_PROXY_REMOVAL));
@@ -299,164 +302,41 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         }
     }
 
-    /**
-     * Performs a dominator-first visit of the CFG blocks. This function is called recursive, and each recursive call
-     * should return when it reaches the end of its "if" branch scope.
-     * @param replacements PiContext which are in effect for the given block. This may be modified partway through a block,
-     *                     for example with Pi nodes from array loads.
-     */
-    private AbstractMergeNode addPiNodes(HIRBlock block, final Deque<PiContext> replacements) {
-        // this will perform a top-down visit of the control flow tree, inserting pi nodes at branches.
-        // XXX limitation: we only pi-ify precisely the operands to the < condition.
-        // hopefully, the graph algorithm handles this transitively.
-        // XXX also, only when they are literally used as inputs to cfg nodes in the branches.
+    private static class AddPiNodesVisitor implements ControlFlowGraph.RecursiveVisitor<Integer> {
+        public final List<PiContext> allContexts = new ArrayList<>();
+        private final Deque<PiContext> contextStack = new ArrayDeque<>();
 
-//        cfg.visitDominatorTree(new Visitor(), true);
-
-        assert block != null;
-
-        if (block.getBeginNode() instanceof LoopExitNode exitnode) {
-            // multiple-exit loops are handled at the loop begin node, do not recurse.
-            if (exitnode.loopBegin().loopExits().count() > 1)
-                return null;
+        private int addContext(PiContext pi) {
+            contextStack.push(pi);
+            allContexts.add(pi);
+            return 1;
         }
 
-        // mark this block in all currently active pi contexts.
-        for (var ctx : replacements) {
-            System.out.println("arraylengths: " + ctx + " " + ctx.lengthNodes);
-            ctx.fullBlocks.add(block);
+        @Override
+        public Integer enter(HIRBlock b) {
+            for (var c : contextStack) {
+                c.fullBlocks.add(b);
+            }
+
+            int numContexts = 0;
+            if (b.getBeginNode().predecessor() instanceof IfNode ifnode && ifnode.condition() instanceof BinaryOpLogicNode binop) {
+                System.out.println("enter: IF " + b);
+                numContexts += addContext(new PiContext(List.of(binop.getX(), binop.getY()), b.getBeginNode(), b));
+            }
+
+            for (var node : b.getNodes()) {
+                if (node instanceof final AccessIndexedNode load) {
+                    numContexts += addContext(new PiContext(load.index(), load, b));
+                }
+            }
+
+            return numContexts;
         }
 
-        System.out.println("addPiNodes: " + block);
-        for (var node : block.getNodes()) {
-
-            final var lastLengthNodes = replacements.getLast().lengthNodes;
-            if (node instanceof ArrayLengthNode length) {
-                lastLengthNodes.put(length.array(), length);
-            }
-
-            if (node instanceof final AccessIndexedNode load) {
-                ArrayLengthNode length = null;
-                for (final var ctx : replacements)
-                    length = length != null ? length : ctx.lengthNodes.get(load.array());
-
-                var context = new PiContext(load.index(), load, block);
-                piContexts.put(context.begin, context);
-                replacements.push(context);
-            }
-        }
-
-        var endnode = block.getEndNode();
-        var nodetoblock = cfg.getNodeToBlock();
-        if (endnode instanceof IfNode ifnode) {
-            var cond = ifnode.condition();
-
-            AbstractMergeNode merge1, merge2;
-
-            AbstractBeginNode truesucc = ifnode.trueSuccessor();
-            AbstractBeginNode falsesucc = ifnode.falseSuccessor();
-            if (cond instanceof BinaryOpLogicNode binnode) {
-                System.out.println("recursing into if branches... " + ifnode);
-                var x = binnode.getX();
-                var y = binnode.getY();
-
-                PiContext pi;
-                AbstractMergeNode tend, fend;
-
-                HIRBlock beginBlock1 = nodetoblock.get(truesucc);
-                pi = new PiContext(List.of(x, y), truesucc, beginBlock1);
-                replacements.push(pi);
-                System.out.println(" begin tcase: " + truesucc);
-                piContexts.put(pi.begin, pi);
-                tend = addPiNodes(nodetoblock.get(truesucc), replacements);
-                System.out.println(" end tcase: " + truesucc);
-                pi = replacements.pop();
-                while (!pi.begin.equals(truesucc)) pi = replacements.pop();
-                System.out.println("piContexts: " + pi.begin + " --> " + pi);
-                // pop multiple contexts since array accesses may have inserted pi variables too.
-
-                HIRBlock beginBlock = nodetoblock.get(falsesucc);
-                pi = new PiContext(List.of(x, y), falsesucc, beginBlock);
-                replacements.push(pi);
-                System.out.println(" begin fcase: " + falsesucc);
-                piContexts.put(pi.begin, pi);
-                fend = addPiNodes(nodetoblock.get(falsesucc), replacements);
-                System.out.println(" end fcase: " + falsesucc);
-                pi = replacements.pop();
-                while (!pi.begin.equals(falsesucc)) pi = replacements.pop();
-                System.out.println("piContexts: " + pi.begin + " --> " + pi);
-
-                merge1 = tend;
-                merge2 = fend;
-            } else {
-                System.out.println("unknown if condition: " + cond.toString());
-
-                // no extra replacements down paths with unsupported conditions.
-                piContexts.put(truesucc, new PiContext(List.of(), truesucc, nodetoblock.get(truesucc)));
-                var tend = addPiNodes(nodetoblock.get(truesucc), replacements);
-                piContexts.put(falsesucc, new PiContext(List.of(), falsesucc, nodetoblock.get(falsesucc)));
-                var fend = addPiNodes(nodetoblock.get(falsesucc), replacements);
-
-
-                merge1 = tend;
-                merge2 = fend;
-            }
-//            assert Objects.equals(merge1, merge2) : "differing merge results from " + ifnode + " : " + merge1 + " | " + merge2;
-
-            if (merge1 != null) {
-                addPiNodes(nodetoblock.get(merge1), replacements);
-            }
-            if (merge2 != null && !Objects.equals(merge1, merge2)) {
-                addPiNodes(nodetoblock.get(merge2), replacements);
-            }
-            return null;
-
-        } else if (endnode instanceof LoopEndNode) {
-            // a loop end is the end of a loop's inner block. both cases are considered at the loop entry, do not recurse.
-            return null;
-
-        } else if (endnode instanceof ReturnNode) {
-            return null;
-
-        } else if (endnode instanceof EndNode end && end.merge() != null) {
-            if (end.merge() instanceof LoopBeginNode loopbegin) {
-                System.out.println("handling loop: " + loopbegin);
-                AbstractMergeNode merge = null;
-                for (var x : loopbegin.cfgSuccessors()) {
-                    System.out.println(" ... loop cfg succ: " + x);
-                    addPiNodes(nodetoblock.get(x), replacements);
-                }
-                if (loopbegin.loopExits().count() == 1) {
-                    System.out.println(" ... sole loop exit: " + loopbegin.loopExits().first());
-                    // only one exit. no merge, so proceed to block after loop.
-                    return addPiNodes(nodetoblock.get(loopbegin.loopExits().first()), replacements);
-                }
-                // multiple loop exits. ensure they all merge to the same point then visit their merge block.
-                for (var x : loopbegin.loopExits()) {
-                    System.out.println(" ... loop exit: " + x);
-                    // assert that loop exit blocks are immediately merged. if so, return their common merge point.
-                    var b = nodetoblock.get(x);
-                    assert b.getEndNode().predecessor().equals(b.getBeginNode()) : "loop has non-trivial exit merge at " + b.getBeginNode();
-                    if (b.getEndNode() instanceof AbstractEndNode aen) {
-                        var m = aen.merge();
-                        merge = merge == null ? m : merge;
-                        assert Objects.equals(merge, m) : "loop exit merges differ! at " + loopbegin;
-                    }
-                }
-                return addPiNodes(nodetoblock.get(merge), replacements);
-            } else {
-                // at a merge point which is not a loop head. this is probably an if node join?
-                // return control to caller and do not recurse.
-                return end.merge();
-            }
-        } else {
-            if (block.getSuccessorCount() > 0) {
-                System.out.println("fallthrough pi endnode: " + endnode);
-                assert block.getSuccessorCount() == 1 : "num successors != 1 at: " + block;
-                return addPiNodes(block.getFirstSuccessor(), replacements);
-            } else {
-                return null;
-            }
+        @Override
+        public void exit(HIRBlock b, Integer count) {
+            System.out.println("exit: " + b);
+            for (var i = 0; i < count; i++) contextStack.pop();
         }
     }
 
