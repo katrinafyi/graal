@@ -1255,6 +1255,9 @@ public abstract class DefaultJavaLoweringProvider implements LoweringProvider {
         if (boundsCheck.isTautology()) {
             return null;
         }
+        if (n.isRedundant()) {
+            return null; // FIXME PRAYING FOR LOWER BOUND
+        }
         return tool.createGuard(n, graph.addOrUniqueWithInputs(boundsCheck), BoundsCheckException, InvalidateReprofile);
     }
 

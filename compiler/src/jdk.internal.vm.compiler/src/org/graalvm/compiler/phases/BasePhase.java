@@ -360,7 +360,7 @@ public abstract class BasePhase<C> implements PhaseSizeContract {
     }
 
     protected boolean shouldDumpBeforeAtBasicLevel() {
-        return false;
+        return true;
     }
 
     protected boolean shouldDumpAfterAtBasicLevel() {

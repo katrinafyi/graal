@@ -253,7 +253,10 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             System.out.println("preparing to eliminate check for " + boundsCheck);
             var prover = new DemandProver(lengthnode, boundsCheck, piContextsInScope);
             provers.add(prover);
-            System.out.println(prover.prove(indexnode, -1L));
+            var result = prover.prove(indexnode, -1L);
+            System.out.println(result);
+            if (result != DemandProver.Lattice.False)
+                boundsCheck.setRedundant(true);
 
             System.out.printf("DOT%d! digraph G {%n", i);
             for (var it = prover.piEssa.getEntries(); it.advance(); ) {
@@ -434,9 +437,11 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                     // assert that loop exit blocks are immediately merged. if so, return their common merge point.
                     var b = nodetoblock.get(x);
                     assert b.getEndNode().predecessor().equals(b.getBeginNode()) : "loop has non-trivial exit merge at " + b.getBeginNode();
-                    var m = ((AbstractEndNode) b.getEndNode()).merge();
-                    merge = merge == null ? m : merge;
-                    assert Objects.equals(merge, m) : "loop exit merges differ! at " + loopbegin;
+                    if (b.getEndNode() instanceof AbstractEndNode aen) {
+                        var m = aen.merge();
+                        merge = merge == null ? m : merge;
+                        assert Objects.equals(merge, m) : "loop exit merges differ! at " + loopbegin;
+                    }
                 }
                 return addPiNodes(nodetoblock.get(merge), replacements);
             } else {
@@ -445,9 +450,13 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 return end.merge();
             }
         } else {
-            assert block.getSuccessorCount() == 1 : "num successors != 1 at: " + block;
-            System.out.println("fallthrough pi endnode: " + endnode);
-            return addPiNodes(block.getFirstSuccessor(), replacements);
+            if (block.getSuccessorCount() > 0) {
+                System.out.println("fallthrough pi endnode: " + endnode);
+                assert block.getSuccessorCount() == 1 : "num successors != 1 at: " + block;
+                return addPiNodes(block.getFirstSuccessor(), replacements);
+            } else {
+                return null;
+            }
         }
     }
 
