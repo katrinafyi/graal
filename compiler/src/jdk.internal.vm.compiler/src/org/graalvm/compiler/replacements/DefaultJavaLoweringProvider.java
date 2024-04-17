@@ -81,6 +81,7 @@ import org.graalvm.compiler.nodes.calc.IntegerBelowNode;
 import org.graalvm.compiler.nodes.calc.IntegerConvertNode;
 import org.graalvm.compiler.nodes.calc.IntegerDivRemNode;
 import org.graalvm.compiler.nodes.calc.IntegerEqualsNode;
+import org.graalvm.compiler.nodes.calc.IntegerLessThanNode;
 import org.graalvm.compiler.nodes.calc.IsNullNode;
 import org.graalvm.compiler.nodes.calc.LeftShiftNode;
 import org.graalvm.compiler.nodes.calc.NarrowNode;
@@ -1256,7 +1257,8 @@ public abstract class DefaultJavaLoweringProvider implements LoweringProvider {
             return null;
         }
         if (n.isRedundant()) {
-            return null; // FIXME PRAYING FOR LOWER BOUND
+            // FIXME implement lower bounds check too.
+            boundsCheck = IntegerLessThanNode.create(ConstantNode.forInt(-1), n.index(), NodeView.DEFAULT);
         }
         return tool.createGuard(n, graph.addOrUniqueWithInputs(boundsCheck), BoundsCheckException, InvalidateReprofile);
     }
