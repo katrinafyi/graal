@@ -535,7 +535,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                     a new c value which is smaller indicates a request to prove a stronger statement, i.e. the variable is incrementing.
                     empirically, the results match with this interpretation.
                  */
-                if (c < active.get(v)) {
+                if (c <= active.get(v)) {
                     System.out.printf("%s  by amplifying cycle,%n", indent);
                     return Lattice.False;
                 } else {
