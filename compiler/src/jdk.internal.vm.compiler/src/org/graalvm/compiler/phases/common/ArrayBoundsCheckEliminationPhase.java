@@ -27,6 +27,8 @@ package org.graalvm.compiler.phases.common;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
@@ -49,6 +51,7 @@ import org.graalvm.compiler.nodes.GuardNode;
 import org.graalvm.compiler.nodes.*;
 import org.graalvm.compiler.nodes.StructuredGraph;
 import org.graalvm.compiler.nodes.calc.AddNode;
+import org.graalvm.compiler.nodes.calc.IntegerBelowNode;
 import org.graalvm.compiler.nodes.calc.IntegerLessThanNode;
 import org.graalvm.compiler.nodes.cfg.ControlFlowGraph;
 import org.graalvm.compiler.nodes.cfg.HIRBlock;
@@ -105,7 +108,6 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
     private ControlFlowGraph cfg;
     private final EconomicMap<Node, PiContext> piContexts = EconomicMap.create();
-    private NodeMap<ArrayLengthNode> canonicalLengths;
     public final List<DemandProver> provers = new ArrayList<>();
 
     @Override
@@ -119,15 +121,6 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 return prim;
         }
         return null;
-    }
-
-    Node canonicalizeEssaNode(Node node) {
-        if (node instanceof ArrayLengthNode lennode) {
-            return Objects.requireNonNull(canonicalLengths.get(lennode.array()));
-        } else if (node instanceof ValueProxyNode proxy) {
-            return proxy.getOriginalNode();
-        }
-        return node;
     }
 
     @Override
@@ -160,20 +153,17 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         // i.e., the weight bounds the numerical difference between the target and destination nodes.
 
         List<LoadIndexedNode> boundsChecks = new ArrayList<>();
+        EconomicSet<ConstantNode> constants = EconomicSet.create();
 
-        canonicalLengths = new NodeMap<>(graph);
-        for (var ctx : piContexts.getValues()) {
-            // it does not really matter which ALN we choose for ESSA since we forget about control flow there.
-            canonicalLengths.putAll(ctx.lengthNodes);
-        }
-        System.out.println("CANONICAL LENGTHS: " + canonicalLengths);
         // graal ir does not explicitly assign to local variables. instead, we can pretend each SSA node is an assignment
         // to a variable called itself.
         for (Node node : graph.getNodes()) {
             // ignored:
             // vi = Aj.length
             // vi = c
-            if (node instanceof AddNode add) {
+            if (node instanceof ConstantNode constant) {
+                constants.add(constant);
+            } else if (node instanceof AddNode add) {
                 long weight = -1;
                 PrimitiveConstant prim;
                 Node other = null;
@@ -200,6 +190,18 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
                     // X >= Y  <==> pi(Y) - pi(X) <= 0
                     fpi.overlay.put(Pair.create(EssaVar.pi(x), EssaVar.pi(y)), 0L);
+                } else if (ifnode.condition() instanceof IntegerBelowNode ltnode) {
+                    // FIXME handle below (unsigned less than) and less than (signed LT) properly!!!
+                    // X < Y
+                    var x = ltnode.getX();
+                    var y = ltnode.getY();
+                    // pi variables inserted via {@link PiContext#piBases}
+
+                    // pi(X) < pi(Y)  <==> pi(X) - pi(Y) <= - 1
+                    tpi.overlay.put(Pair.create(EssaVar.pi(y), EssaVar.pi(x)), -1L);
+
+                    // X >= Y  <==> pi(Y) - pi(X) <= 0
+                    fpi.overlay.put(Pair.create(EssaVar.pi(x), EssaVar.pi(y)), 0L);
                 }
 
             } else if (node instanceof PhiNode phinode) {
@@ -214,6 +216,21 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             }
 
             System.out.println(node.getClass() + " " +  node);
+        }
+
+        List<ConstantNode> constantsList = new ArrayList<>();
+        constants.iterator().forEachRemaining(x -> {
+            if (castConstantLong(x) != null) constantsList.add(x);
+        });
+        constantsList.sort(Comparator.comparing(x -> castConstantLong(x).asLong()));
+
+        for (var i = 0; i < constantsList.size() - 1; i++) {
+            var l = constantsList.get(i);
+            var r = constantsList.get(i+1);
+            var lv = castConstantLong(l).asLong();
+            var rv = castConstantLong(r).asLong();
+//            topContext.overlay.put(Pair.create(EssaVar.pure(l), EssaVar.pure(r)), rv-lv);
+            topContext.overlay.put(Pair.create(EssaVar.pi(r), EssaVar.pi(l)), lv-rv);
         }
 
         System.out.println("PI CONTEXT: " + piContexts);
@@ -450,10 +467,11 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
         Node base();
 
-        static Pi pi(Node n) {
-            return new Pi(pure(n));
+        static EssaVar pi(Node n) {
+            return pi(pure(n));
         }
-        static Pi pi(EssaVar n) {
+        static EssaVar pi(EssaVar n) {
+//            if (n.base() instanceof ConstantNode) return n;
             return new Pi(n);
         }
         static NodeVar pure(Node n) {
@@ -558,6 +576,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
          * if proven, this will bound "index < array length" and hence this array index needs no bounds check.
          */
         public Lattice prove(Node v, long c) {
+            depth = 1;
             return prove(resolveNode(v), c); // XXX need to be smarter with this.
         }
 

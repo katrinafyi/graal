@@ -10,6 +10,7 @@ import org.graalvm.compiler.phases.common.ArrayBoundsCheckEliminationPhase;
 import org.graalvm.compiler.phases.common.CanonicalizerPhase;
 import org.graalvm.compiler.phases.common.IterativeConditionalEliminationPhase;
 import org.junit.Assert;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import java.util.List;
@@ -17,10 +18,18 @@ import java.util.Objects;
 
 @SuppressWarnings("unused")
 public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
+    private final ArrayBoundsCheckEliminationPhase.DemandProver.Lattice TRUE = ArrayBoundsCheckEliminationPhase.DemandProver.Lattice.True;
+    private final ArrayBoundsCheckEliminationPhase.DemandProver.Lattice REDUCED = ArrayBoundsCheckEliminationPhase.DemandProver.Lattice.Reduced;
+    private final ArrayBoundsCheckEliminationPhase.DemandProver.Lattice FALSE = ArrayBoundsCheckEliminationPhase.DemandProver.Lattice.False;
     List<LoadIndexedNode> loads;
     ArrayBoundsCheckEliminationPhase phase;
+
     private void prepare(String testMethod) {
-        ResolvedJavaMethod meth = getResolvedJavaMethod(ArrayBoundsCheckEliminationPiTests.class, testMethod);
+        prepare(testMethod, getClass());
+    }
+
+    private void prepare(String testMethod, Class<?> clazz) {
+        ResolvedJavaMethod meth = getResolvedJavaMethod(clazz, testMethod);
         StructuredGraph graph = parseEager(meth, StructuredGraph.AllowAssumptions.NO);
 
         DebugContext debug = graph.getDebug();
@@ -69,7 +78,7 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
         var load = loads.get(0);
         var prover = phase.provers.get(0);
         Assert.assertEquals("pi correctness two_if", pi(pi(load.index())), prover.resolveNode(load.index()));
-        Assert.assertEquals("elimination two_if", ArrayBoundsCheckEliminationPhase.DemandProver.Lattice.True, prover.prove(load.index(), -1));
+        Assert.assertEquals("elimination two_if", TRUE, prover.prove(load.index(), -1));
     }
     @Test
     public void test_one_if() {
@@ -96,9 +105,11 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
         Assert.assertEquals(2, phase.provers.size());
         Assert.assertEquals(2, loads.size());
         var load = loads.get(0);
-        var prover = phase.provers.get(1);
-        Assert.assertEquals("pi array_load second load", pi(load.index()), prover.resolveNode(load.index()));
-        Assert.assertEquals("elimination array_two_load " + prover, ArrayBoundsCheckEliminationPhase.DemandProver.Lattice.True, prover.prove(load.index(), -1));
+        var prover1 = phase.provers.get(0);
+        var prover2 = phase.provers.get(1);
+        Assert.assertEquals("pi array_load second load", pi(load.index()), prover2.resolveNode(load.index()));
+        Assert.assertEquals("non-elimination array_two_load " + prover1, FALSE, prover1.prove(load.index(), -1));
+        Assert.assertEquals("elimination array_two_load " + prover2, TRUE, prover2.prove(load.index(), -1));
     }
 
     public static int bubblesort(int[] a) {
@@ -136,25 +147,148 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
         Assert.assertEquals(4, phase.provers.size());
         for (int i = 0; i < phase.provers.size(); i++) {
             var p = phase.provers.get(i);
-            Assert.assertEquals("redundant: " + p.load, ArrayBoundsCheckEliminationPhase.DemandProver.Lattice.Reduced, p.prove(p.load.index(), -1));
+            Assert.assertEquals("redundant: " + p.load, REDUCED, p.prove(p.load.index(), -1));
         }
     }
 
-    public static int constant_f(int[] a) {
-        if (!(10 < a.length))
-            return -1;
-        return a[5];
+    private void testCommon(String name) {
+        prepare(name, ArrayBoundsCheckEliminationTestCases.class);
+        assert name.endsWith("_f") || name.endsWith("_p");
+        var expected = name.endsWith("_f") ? List.of(TRUE, REDUCED) : List.of(FALSE);
+        Assert.assertFalse("expected non-zero provers", phase.provers.isEmpty());
+        for (int i = 0; i < phase.provers.size(); i++) {
+            var p = phase.provers.get(i);
+            var actual = p.prove(p.load.index(), -1L);
+            var msg = String.format("abce test load %d/%d: %s, actual: %s, expected: %s",
+                    i+1, phase.provers.size(), p.load, actual, expected);
+            Assert.assertTrue(msg, expected.contains(actual));
+        }
     }
 
     @Test
-    public void test_constant() {
-        prepare("constant_f");
-        System.out.println(phase.provers);
-        Assert.assertEquals(1, phase.provers.size());
-        for (int i = 0; i < phase.provers.size(); i++) {
-            var p = phase.provers.get(i);
-            Assert.assertEquals("redundant: " + p.load, ArrayBoundsCheckEliminationPhase.DemandProver.Lattice.True, p.prove(p.load.index(), -1));
-        }
+    public void test_constant_p() {
+        testCommon("constant_p");
     }
+    @Test
+    public void test_constant_f() {
+        testCommon("constant_f");
+    }
+    @Test
+    public void test_param_p() {
+        testCommon("param_p");
+    }
+    @Test
+    public void test_param_f() {
+        testCommon("param_f");
+    }
+    @Test
+    public void test_param_trans_f() {
+        testCommon("param_trans_f");
+    }
+    @Test
+    public void test_loop1_p() {
+        testCommon("loop1_p");
+    }
+    @Test
+    public void test_loop1_f() {
+        testCommon("loop1_f");
+    }
+    @Test
+    public void test_loop1plus5_p() {
+        testCommon("loop1plus5_p");
+    }
+    @Test
+    public void test_loop1plus5_f() {
+        testCommon("loop1plus5_f");
+    }
+    @Test
+    public void test_loop1plusc_p() {
+        testCommon("loop1plusc_p");
+    }
+    @Test
+    @Ignore("unable to handle non-constant summands")
+    public void test_loop1plusc_f() {
+        testCommon("loop1plusc_f");
+    }
+    @Test
+    public void test_loop1double_p() {
+        testCommon("loop1double_p");
+    }
+    @Test
+    @Ignore("unable to handle multiplication")
+    public void test_loop1double_f() {
+        testCommon("loop1double_f");
+    }
+    @Test
+    public void test_loop2i_p() {
+        testCommon("loop2i_p");
+    }
+    @Test
+    public void test_loop2i_f() {
+        testCommon("loop2i_f");
+    }
+    @Test
+    public void test_loop2triangular_p() {
+        prepare("loop2triangular_p", ArrayBoundsCheckEliminationTestCases.class);
+        var p0 = phase.provers.get(0);
+        var p1 = phase.provers.get(1);
+        Assert.assertEquals(FALSE, p0.prove(p0.load.index(), -1L));
+        Assert.assertEquals(TRUE, p1.prove(p1.load.index(), -1L));
+    }
+    @Test
+    public void test_loop2trianglular_f() {
+        testCommon("loop2trianglular_f");
+    }
+    @Test
+    public void test_loop2lowertri_p() {
+        prepare("loop2lowertri_p", ArrayBoundsCheckEliminationTestCases.class);
+        var p0 = phase.provers.get(0);
+        var p1 = phase.provers.get(1);
+        Assert.assertEquals(FALSE, p0.prove(p0.load.index(), -1L));
+        Assert.assertEquals(TRUE, p1.prove(p1.load.index(), -1L));
+    }
+    @Test
+    public void test_loop2lowertri_f() {
+        testCommon("loop2lowertri_f");
+    }
+    @Test
+    public void test_loop2uppertri_p() {
+        testCommon("loop2uppertri_p");
+    }
+    @Test
+    public void test_loop2uppertri_f() {
+        testCommon("loop2uppertri_f");
+    }
+    @Test
+    public void test_loop2sum_p() {
+        testCommon("loop2sum_p");
+    }
+    @Test
+    @Ignore("unable to handle non-constant summands")
+    public void test_loop2sum_f() {
+        testCommon("loop2sum_f");
+    }
+    @Test
+    public void test_loop2sumplus5_p() {
+        testCommon("loop2sumplus5_p");
+    }
+    @Test
+    @Ignore("unable to handle non-constant summands")
+    public void test_loop2sumplus5_f() {
+        testCommon("loop2sumplus5_f");
+    }
+    @Test
+    public void test_loop2addmul_p() {
+        testCommon("loop2addmul_p");
+    }
+    @Test
+    @Ignore("unable to handle multiplication")
+    public void test_loop2addmul_f() {
+        testCommon("loop2addmul_f");
+    }
+//    @Test
+//    public void test_bubblesort() {
+//        testCommon("bubblesort");
+//    }
 
 }

@@ -33,7 +33,7 @@ public class ArrayBoundsCheckEliminationTest extends GraalCompilerTest {
             "constant_f", // 1
             "param_p", // 2
             "param_f", // 3
-            "param_f_trans", // 4
+            "param_trans_f", // 4
             "loop1_p", // 5
             "loop1_f", // 6
             "loop1plus5_p", // 7

@@ -24,7 +24,7 @@ public class ArrayBoundsCheckEliminationTestCases {
         return a[x];
     }
 
-    public static int param_f_trans(int[] a, int x, int lower, int upper) {
+    public static int param_trans_f(int[] a, int x, int lower, int upper) {
         if (!(0 <= lower))
             return -1;
         if (!(upper < a.length))
@@ -310,7 +310,7 @@ public class ArrayBoundsCheckEliminationTestCases {
             case 13:
                 param_f(ints, a);
             case 14:
-                param_f_trans(ints, a, a, a);
+                param_trans_f(ints, a, a, a);
             case 15:
                 loop1_p(ints, a);
             case 16:
