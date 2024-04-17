@@ -55,8 +55,8 @@ import org.graalvm.compiler.nodes.calc.IntegerBelowNode;
 import org.graalvm.compiler.nodes.calc.IntegerLessThanNode;
 import org.graalvm.compiler.nodes.cfg.ControlFlowGraph;
 import org.graalvm.compiler.nodes.cfg.HIRBlock;
+import org.graalvm.compiler.nodes.java.AccessIndexedNode;
 import org.graalvm.compiler.nodes.java.ArrayLengthNode;
-import org.graalvm.compiler.nodes.java.LoadIndexedNode;
 import org.graalvm.compiler.options.Option;
 import org.graalvm.compiler.options.OptionKey;
 import org.graalvm.compiler.options.OptionType;
@@ -152,7 +152,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         // (u,v) = c   <==>   v - u <= c  <==> c + u >= v
         // i.e., the weight bounds the numerical difference between the target and destination nodes.
 
-        List<LoadIndexedNode> boundsChecks = new ArrayList<>();
+        List<AccessIndexedNode> boundsChecks = new ArrayList<>();
         EconomicSet<ConstantNode> constants = EconomicSet.create();
 
         // graal ir does not explicitly assign to local variables. instead, we can pretend each SSA node is an assignment
@@ -208,7 +208,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 for (var v : phinode.values()) {
                     topContext.overlay.put(Pair.create(EssaVar.pi(v), EssaVar.pure(phinode)), 0L);
                 }
-            } else if (node instanceof LoadIndexedNode loadnode) {
+            } else if (node instanceof AccessIndexedNode loadnode) {
                 piContexts.get(loadnode).overlay.put(
                         Pair.create(new EssaVar.LengthNodeVar(loadnode.array()), EssaVar.pi(loadnode.index())), -1L
                 );
@@ -324,9 +324,6 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             ctx.fullBlocks.add(block);
         }
 
-        var graph = block.getBeginNode().graph();
-
-
         System.out.println("addPiNodes: " + block);
         for (var node : block.getNodes()) {
 
@@ -335,7 +332,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 lastLengthNodes.put(length.array(), length);
             }
 
-            if (node instanceof final LoadIndexedNode load) {
+            if (node instanceof final AccessIndexedNode load) {
                 ArrayLengthNode length = null;
                 for (final var ctx : replacements)
                     length = length != null ? length : ctx.lengthNodes.get(load.array());
@@ -487,7 +484,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         private final EconomicMap<EssaVar, Long> active = EconomicMap.create();
         /** map of Graal nodes to their ESSA var, possibly adding pi nodes. */
         private final EconomicMap<Node, EssaVar> piMap = EconomicMap.create();
-        public final LoadIndexedNode load;
+        public final AccessIndexedNode load;
         private int depth = 0;
 
         public enum Lattice {
@@ -511,7 +508,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         }
 
         // XXX: good for one demand-prove only!
-        public DemandProver(EssaVar.LengthNodeVar a, LoadIndexedNode load, Iterable<PiContext> piContexts) {
+        DemandProver(EssaVar.LengthNodeVar a, AccessIndexedNode load, Iterable<PiContext> piContexts) {
             this.load = load;
             this.piEssa = EconomicMap.create();
             this.a = a;
