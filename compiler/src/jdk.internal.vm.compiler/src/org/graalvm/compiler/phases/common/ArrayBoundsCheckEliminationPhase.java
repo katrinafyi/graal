@@ -44,7 +44,6 @@ import org.graalvm.collections.Pair;
 import org.graalvm.compiler.graph.Node;
 import org.graalvm.compiler.graph.NodeMap;
 import org.graalvm.compiler.nodeinfo.Verbosity;
-import org.graalvm.compiler.nodes.AbstractEndNode;
 import org.graalvm.compiler.nodes.ConstantNode;
 import org.graalvm.compiler.nodes.GraphState;
 import org.graalvm.compiler.nodes.*;
@@ -66,12 +65,13 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
     private static PrintStream out;
 
     public static class Options {
-
         // @formatter:off
-        @Option(help = "Disable array bounds check elimations", type = OptionType.Debug)
+        @Option(help = "Disable array bounds check elimination", type = OptionType.Debug)
         public static final OptionKey<Boolean> DisableABCE = new OptionKey<>(true);
-        @Option(help = "Disable array bounds check elimations", type = OptionType.Debug)
+        @Option(help = "Print debugging output for array bounds check elimination", type = OptionType.Debug)
         public static final OptionKey<Boolean> DebugABCE = new OptionKey<>(true);
+        @Option(help = "UNSAFE ignoring of all bounds checks", type = OptionType.Debug)
+        public static final OptionKey<Boolean> UnsafeABCE = new OptionKey<>(false);
         // @formatter:on
     }
 
@@ -132,8 +132,9 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             return;
         }
         out = Options.DebugABCE.getValue(graph.getOptions()) ? System.out : new PrintStream(OutputStream.nullOutputStream());
+        var unsafe = Options.UnsafeABCE.getValue(graph.getOptions());
 
-        // just printing the cfg
+                // just printing the cfg
         cfg = ControlFlowGraph.compute(graph, true, true, true, true);
         for (var bb : cfg.getBlocks()) {
             out.println(bb.toString(Verbosity.All));
@@ -265,8 +266,13 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             provers.add(prover);
             var result = prover.prove(indexnode, -1L);
             out.println(result);
-            if (result != DemandProver.Lattice.False)
-                boundsCheck.setRedundant(true);
+            if (result != DemandProver.Lattice.False) {
+                boundsCheck.setRedundantUpperBound(true);
+            }
+            if (unsafe) {
+                boundsCheck.setRedundantUpperBound(true);
+                boundsCheck.setRedundantLowerBound(true);
+            }
 
             out.printf("DOT%d! digraph G {%n", i);
             for (var it = prover.piEssa.getEntries(); it.advance(); ) {
