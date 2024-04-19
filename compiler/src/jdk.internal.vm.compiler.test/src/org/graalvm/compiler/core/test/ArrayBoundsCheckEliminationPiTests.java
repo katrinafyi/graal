@@ -236,7 +236,7 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
     public void test_loop2triangular_p() {
         prepare("loop2triangular_p", ArrayBoundsCheckEliminationTestCases.class);
         Assert.assertEquals(FALSE, phase.upperProvers.get(0).prove());
-        Assert.assertEquals(FALSE, phase.lowerProvers.get(0).prove());
+        Assert.assertEquals(TRUE, phase.lowerProvers.get(0).prove());
         Assert.assertEquals(TRUE, phase.upperProvers.get(1).prove());
         Assert.assertEquals(TRUE, phase.lowerProvers.get(1).prove());
     }
@@ -248,7 +248,7 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
     public void test_loop2lowertri_p() {
         prepare("loop2lowertri_p", ArrayBoundsCheckEliminationTestCases.class);
         Assert.assertEquals(FALSE, phase.upperProvers.get(0).prove());
-        Assert.assertEquals(FALSE, phase.lowerProvers.get(0).prove());
+        Assert.assertEquals(TRUE, phase.lowerProvers.get(0).prove());
         Assert.assertEquals(TRUE, phase.upperProvers.get(1).prove());
         Assert.assertEquals(TRUE, phase.lowerProvers.get(1).prove());
     }

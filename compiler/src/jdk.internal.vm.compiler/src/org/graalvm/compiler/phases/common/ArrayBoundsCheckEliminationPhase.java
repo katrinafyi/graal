@@ -229,7 +229,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
             } else if (node instanceof PhiNode phinode) {
                 for (var v : phinode.values()) {
-                    topContext.addEdge(EssaVar.pi(v), EssaVar.pure(phinode), 0L);
+                    topContext.addSymmetricEdge(EssaVar.pi(v), EssaVar.pure(phinode), 0L);
                 }
             } else if (node instanceof AccessIndexedNode loadnode) {
                 var ctx = piContexts.get(loadnode);
@@ -254,7 +254,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             var lv = castConstantLong(l).asLong();
             var rv = castConstantLong(r).asLong();
 //            topContext.overlay.put(Pair.create(EssaVar.pure(l), EssaVar.pure(r)), rv-lv);
-            topContext.addSymmetricEdge(EssaVar.pi(r), EssaVar.pi(l), lv-rv);
+            topContext.addEdge(EssaVar.pi(r), EssaVar.pi(l), lv-rv);
         }
 
         out.println("PI CONTEXT: " + piContexts);
@@ -277,19 +277,17 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             DemandProver prover;
             DemandProver.Lattice result;
             out.println("preparing to eliminate check for " + boundsCheck);
-            var lowerProver = prover = new DemandProver(boundsCheck, piContextsInScope, true);
+            prover = new DemandProver(boundsCheck, piContextsInScope, true);
             upperProvers.add(prover);
             result = prover.prove();
             out.println("upper: " + result);
             if (result != DemandProver.Lattice.False) boundsCheck.setRedundantUpperBound(true);
 
-            prover = new DemandProver(boundsCheck, piContextsInScope, false);
+            var lowerProver = prover = new DemandProver(boundsCheck, piContextsInScope, false);
             lowerProvers.add(prover);
             result = prover.prove();
             out.println("lower: " + result);
-            if (result != DemandProver.Lattice.False) {
-                boundsCheck.setRedundantUpperBound(true);
-            }
+            if (result != DemandProver.Lattice.False) boundsCheck.setRedundantLowerBound(true);
 
             out.printf("DOT%d! digraph G {%n", i);
             for (var it = lowerProver.piEssa.getEntries(); it.advance(); ) {
@@ -461,12 +459,12 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             if (isUpperBound) {
                 // index - len <= -1
                 source = new EssaVar.LengthNodeVar(load.array());
-                target = resolveNode(load.index());
+                target = EssaVar.pi(load.index());
                 weight = -1L;
             } else {
                 // 0 - index <= 0
-                source = resolveNode(load.index());
-                target = resolveNode(load.graph().addOrUnique(ConstantNode.forInt(0)));
+                source = EssaVar.pi(load.index());
+                target = EssaVar.pi(load.graph().addOrUnique(ConstantNode.forInt(0)));
                 weight = 0L;
             }
             out.println("\nDemandProver init: source=" + source + ", target=" + target);
@@ -539,7 +537,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
          */
         public Lattice prove() {
             depth = 1;
-            return prove(target, weight);
+            return prove(resolveEssaVar(target), weight);
         }
 
         private Lattice prove(EssaVar v, long c) {
@@ -610,7 +608,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                     a new c value which is smaller indicates a request to prove a stronger statement, i.e. the variable is incrementing.
                     empirically, the results match with this interpretation.
                  */
-                if (c <= active.get(v)) {
+                if (isUpperBound ? c <= active.get(v) : c >= active.get(v)) {
                     out.printf("%s  by amplifying cycle,%n", indent);
                     return Lattice.False;
                 } else {
@@ -623,7 +621,10 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             out.printf("%s... parents of %s%n", indent, v);
             if (v instanceof EssaVar.NodeVar nodevar && nodevar.n instanceof PhiNode) {
                 for (var it = piEssa.getEntries(); it.advance(); ) {
-                    if (!it.getKey().getRight().equals(v)) continue;
+                    var ok = isUpperBound
+                            ? it.getKey().getRight().equals(v)
+                            : it.getKey().getLeft().equals(v);
+                    if (!ok) continue;
                     var u = it.getKey().getLeft();
                     var d = it.getValue();
                     var prev = Objects.requireNonNullElse(cmap.get(c), Lattice.True);
