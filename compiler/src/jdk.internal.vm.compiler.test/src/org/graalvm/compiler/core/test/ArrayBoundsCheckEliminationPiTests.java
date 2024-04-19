@@ -73,23 +73,23 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
     @Test
     public void test_two_if() {
         prepare("two_if");
-        Assert.assertEquals(1, phase.provers.size());
+        Assert.assertEquals(1, phase.upperProvers.size());
         Assert.assertEquals(1, loads.size());
         var load = loads.get(0);
-        var prover = phase.provers.get(0);
+        var prover = phase.upperProvers.get(0);
         Assert.assertEquals("pi correctness two_if", pi(pi(load.index())), prover.resolveNode(load.index()));
-        Assert.assertEquals("elimination two_if", TRUE, prover.prove(load.index(), -1));
+        Assert.assertEquals("elimination two_if", TRUE, prover.prove());
     }
     @Test
     public void test_one_if() {
         prepare("one_if");
-        System.out.println(phase.provers);
-        Assert.assertEquals(1, phase.provers.size());
+        System.out.println(phase.upperProvers);
+        Assert.assertEquals(1, phase.upperProvers.size());
         Assert.assertEquals(1, loads.size());
         var load = loads.get(0);
-        var prover = phase.provers.get(0);
+        var prover = phase.upperProvers.get(0);
         Assert.assertEquals("pi one_if", pi(load.index()), prover.resolveNode(load.index()));
-        Assert.assertEquals("non-elimination two_if", ArrayBoundsCheckEliminationPhase.DemandProver.Lattice.False, prover.prove(load.index(), -1));
+        Assert.assertEquals("non-elimination two_if", ArrayBoundsCheckEliminationPhase.DemandProver.Lattice.False, prover.prove());
     }
 
     private int array_two_load(int i, int[] a, boolean b) {
@@ -101,15 +101,15 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
     @Test
     public void test_array_two_load() {
         prepare("array_two_load");
-        System.out.println(phase.provers);
-        Assert.assertEquals(2, phase.provers.size());
+        System.out.println(phase.upperProvers);
+        Assert.assertEquals(2, phase.upperProvers.size());
         Assert.assertEquals(2, loads.size());
         var load = loads.get(0);
-        var prover1 = phase.provers.get(0);
-        var prover2 = phase.provers.get(1);
+        var prover1 = phase.upperProvers.get(0);
+        var prover2 = phase.upperProvers.get(1);
         Assert.assertEquals("pi array_load second load", pi(load.index()), prover2.resolveNode(load.index()));
-        Assert.assertEquals("non-elimination array_two_load " + prover1, FALSE, prover1.prove(load.index(), -1));
-        Assert.assertEquals("elimination array_two_load " + prover2, TRUE, prover2.prove(load.index(), -1));
+        Assert.assertEquals("non-elimination array_two_load " + prover1, FALSE, prover1.prove());
+        Assert.assertEquals("elimination array_two_load " + prover2, TRUE, prover2.prove());
     }
 
     public static int bubblesort(int[] a) {
@@ -143,11 +143,13 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
     @Test
     public void test_bubblesort() {
         prepare("bubblesort");
-        System.out.println(phase.provers);
-        Assert.assertEquals(4, phase.provers.size());
-        for (int i = 0; i < phase.provers.size(); i++) {
-            var p = phase.provers.get(i);
-            Assert.assertEquals("redundant: " + p.load, REDUCED, p.prove(p.load.index(), -1));
+        System.out.println(phase.upperProvers);
+        Assert.assertEquals(4, phase.upperProvers.size());
+        for (var provers : List.of(phase.upperProvers, phase.lowerProvers)) {
+            var side = provers == phase.upperProvers ? "upper" : "lower";
+            for (var p : provers) {
+                Assert.assertEquals(side + " redundant: " + p.load, REDUCED, p.prove());
+            }
         }
     }
 
@@ -155,13 +157,16 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
         prepare(name, ArrayBoundsCheckEliminationTestCases.class);
         assert name.endsWith("_f") || name.endsWith("_p");
         var expected = name.endsWith("_f") ? List.of(TRUE, REDUCED) : List.of(FALSE);
-        Assert.assertFalse("expected non-zero provers", phase.provers.isEmpty());
-        for (int i = 0; i < phase.provers.size(); i++) {
-            var p = phase.provers.get(i);
-            var actual = p.prove(p.load.index(), -1L);
-            var msg = String.format("abce test load %d/%d: %s, actual: %s, expected: %s",
-                    i+1, phase.provers.size(), p.load, actual, expected);
-            Assert.assertTrue(msg, expected.contains(actual));
+        for (var provers : List.of(phase.upperProvers, phase.lowerProvers)) {
+            var side = provers == phase.upperProvers ? "upper" : "lower";
+            Assert.assertFalse("expected non-zero provers", provers.isEmpty());
+            for (int i = 0; i < provers.size(); i++) {
+                var p = provers.get(i);
+                var actual = p.prove();
+                var msg = String.format("abce test load %s %d/%d: %s, actual: %s, expected: %s",
+                        side, i + 1, provers.size(), p.load, actual, expected);
+                Assert.assertTrue(msg, expected.contains(actual));
+            }
         }
     }
 
@@ -230,10 +235,10 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
     @Test
     public void test_loop2triangular_p() {
         prepare("loop2triangular_p", ArrayBoundsCheckEliminationTestCases.class);
-        var p0 = phase.provers.get(0);
-        var p1 = phase.provers.get(1);
-        Assert.assertEquals(FALSE, p0.prove(p0.load.index(), -1L));
-        Assert.assertEquals(TRUE, p1.prove(p1.load.index(), -1L));
+        Assert.assertEquals(FALSE, phase.upperProvers.get(0).prove());
+        Assert.assertEquals(FALSE, phase.lowerProvers.get(0).prove());
+        Assert.assertEquals(TRUE, phase.upperProvers.get(1).prove());
+        Assert.assertEquals(TRUE, phase.lowerProvers.get(1).prove());
     }
     @Test
     public void test_loop2trianglular_f() {
@@ -242,10 +247,10 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
     @Test
     public void test_loop2lowertri_p() {
         prepare("loop2lowertri_p", ArrayBoundsCheckEliminationTestCases.class);
-        var p0 = phase.provers.get(0);
-        var p1 = phase.provers.get(1);
-        Assert.assertEquals(FALSE, p0.prove(p0.load.index(), -1L));
-        Assert.assertEquals(TRUE, p1.prove(p1.load.index(), -1L));
+        Assert.assertEquals(FALSE, phase.upperProvers.get(0).prove());
+        Assert.assertEquals(FALSE, phase.lowerProvers.get(0).prove());
+        Assert.assertEquals(TRUE, phase.upperProvers.get(1).prove());
+        Assert.assertEquals(TRUE, phase.lowerProvers.get(1).prove());
     }
     @Test
     public void test_loop2lowertri_f() {
