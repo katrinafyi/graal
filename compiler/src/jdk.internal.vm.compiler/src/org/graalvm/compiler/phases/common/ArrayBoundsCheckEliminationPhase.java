@@ -283,14 +283,14 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             out.println("upper: " + result);
             if (result != DemandProver.Lattice.False) boundsCheck.setRedundantUpperBound(true);
 
-            var lowerProver = prover = new DemandProver(boundsCheck, piContextsInScope, false);
-            lowerProvers.add(prover);
-            result = prover.prove();
-            out.println("lower: " + result);
-            if (result != DemandProver.Lattice.False) boundsCheck.setRedundantLowerBound(true);
+//            var lowerProver = prover = new DemandProver(boundsCheck, piContextsInScope, false);
+//            lowerProvers.add(prover);
+//            result = prover.prove();
+//            out.println("lower: " + result);
+//            if (result != DemandProver.Lattice.False) boundsCheck.setRedundantLowerBound(true);
 
             out.printf("DOT%d! digraph G {%n", i);
-            for (var it = lowerProver.piEssa.getEntries(); it.advance(); ) {
+            for (var it = prover.piEssa.getEntries(); it.advance(); ) {
                 out.printf("DOT%d! \"%s\" -> \"%s\" [ label=\"%d\" ];%n", i, it.getKey().getLeft(), it.getKey().getRight(), it.getValue());
             }
             out.printf("DOT%d! }%n", i);
@@ -625,6 +625,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                             ? it.getKey().getRight().equals(v)
                             : it.getKey().getLeft().equals(v);
                     if (!ok) continue;
+//                    if (!it.getKey().getRight().equals(v)) continue;
                     var u = it.getKey().getLeft();
                     var d = it.getValue();
                     var prev = Objects.requireNonNullElse(cmap.get(c), Lattice.True);

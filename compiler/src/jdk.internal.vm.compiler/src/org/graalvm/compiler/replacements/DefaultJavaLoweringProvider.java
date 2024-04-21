@@ -1249,15 +1249,19 @@ public abstract class DefaultJavaLoweringProvider implements LoweringProvider {
         if (n.getBoundsCheck() != null) {
             return n.getBoundsCheck();
         }
+
+        LogicNode boundsCheck;
         StructuredGraph graph = n.graph();
-        ValueNode arrayLength = readOrCreateArrayLength(n, array, tool, graph);
-        LogicNode boundsCheck = IntegerBelowNode.create(n.index(), arrayLength, NodeView.DEFAULT);
-        if (boundsCheck.isTautology()) {
-            return null;
-        }
+
         if (n.isRedundantUpperBound()) {
             if (n.isRedundantLowerBound()) return null;
             boundsCheck = IntegerBelowNode.create(n.index(), ConstantNode.forLong(Integer.MAX_VALUE + 1L), NodeView.DEFAULT);
+        } else {
+            ValueNode arrayLength = readOrCreateArrayLength(n, array, tool, graph);
+            boundsCheck = IntegerBelowNode.create(n.index(), arrayLength, NodeView.DEFAULT);
+            if (boundsCheck.isTautology()) {
+                return null;
+            }
         }
         return tool.createGuard(n, graph.addOrUniqueWithInputs(boundsCheck), BoundsCheckException, InvalidateReprofile);
     }
