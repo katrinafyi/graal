@@ -42,3 +42,9 @@ to do:
 - handling of inequalities between constants
 - lower bounds checks???
 - benchmarking.
+
+2024-04-24: 
+- we need to instrument with metrics.
+- we also need to make graphs (charts) and graphs (seafoam).
+- after this, we will be ready to start writing and start poster.
+- it would be good to at least encode the optimisation in Graal. verification of soundness may be difficult.
