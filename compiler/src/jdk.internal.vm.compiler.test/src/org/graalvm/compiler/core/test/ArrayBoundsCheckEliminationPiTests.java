@@ -3,8 +3,13 @@ package org.graalvm.compiler.core.test;
 import jdk.vm.ci.meta.ResolvedJavaMethod;
 import org.graalvm.compiler.debug.DebugContext;
 import org.graalvm.compiler.graph.Node;
+import org.graalvm.compiler.loop.phases.LoopFullUnrollPhase;
+import org.graalvm.compiler.loop.phases.LoopPeelingPhase;
+import org.graalvm.compiler.loop.phases.LoopUnswitchingPhase;
 import org.graalvm.compiler.nodes.StructuredGraph;
 import org.graalvm.compiler.nodes.java.LoadIndexedNode;
+import org.graalvm.compiler.nodes.loop.DefaultLoopPolicies;
+import org.graalvm.compiler.nodes.loop.LoopPolicies;
 import org.graalvm.compiler.nodes.spi.CoreProviders;
 import org.graalvm.compiler.phases.common.ArrayBoundsCheckEliminationPhase;
 import org.graalvm.compiler.phases.common.CanonicalizerPhase;
@@ -15,6 +20,9 @@ import org.junit.Test;
 
 import java.util.List;
 import java.util.Objects;
+
+import static org.graalvm.compiler.core.common.GraalOptions.LoopPeeling;
+import static org.graalvm.compiler.core.common.GraalOptions.LoopUnswitch;
 
 @SuppressWarnings("unused")
 public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
@@ -41,8 +49,15 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
         CoreProviders context = getProviders();
         CanonicalizerPhase canonicalizer = createCanonicalizerPhase();
         try (DebugContext.Scope ignored = debug.scope("ABCETest", graph)) {
+
             canonicalizer.apply(graph, context);
             new IterativeConditionalEliminationPhase(canonicalizer, true).apply(graph, context);
+
+            LoopPolicies loopPolicies = new DefaultLoopPolicies();
+            new LoopFullUnrollPhase(canonicalizer, loopPolicies).apply(graph, context);
+            new LoopPeelingPhase(loopPolicies, canonicalizer).apply(graph, context);
+            new LoopUnswitchingPhase(loopPolicies, canonicalizer).apply(graph, context);
+
             phase = new ArrayBoundsCheckEliminationPhase();
             phase.apply(graph, context);
         } catch (Throwable e) {

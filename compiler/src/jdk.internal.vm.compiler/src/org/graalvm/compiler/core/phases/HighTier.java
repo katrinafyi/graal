@@ -92,7 +92,6 @@ public class HighTier extends BaseTier<HighTierContext> {
             appendPhase(new DominatorBasedGlobalValueNumberingPhase(canonicalizer));
         }
 
-        appendPhase(new ArrayBoundsCheckEliminationPhase());
 
         LoopPolicies loopPolicies = createLoopPolicies(options);
         appendPhase(new LoopFullUnrollPhase(canonicalizer, loopPolicies));
@@ -108,6 +107,8 @@ public class HighTier extends BaseTier<HighTierContext> {
         // Must precede all phases that otherwise ignore the identity of boxes (e.g.
         // PartialEscapePhase and BoxNodeOptimizationPhase).
         appendPhase(new BoxNodeIdentityPhase());
+
+        appendPhase(new ArrayBoundsCheckEliminationPhase());
 
         if (PartialEscapeAnalysis.getValue(options)) {
             appendPhase(new FinalPartialEscapePhase(true, canonicalizer, null, options));

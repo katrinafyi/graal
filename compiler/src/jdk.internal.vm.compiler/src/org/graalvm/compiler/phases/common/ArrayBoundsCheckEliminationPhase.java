@@ -41,6 +41,7 @@ import jdk.vm.ci.meta.PrimitiveConstant;
 import org.graalvm.collections.EconomicMap;
 import org.graalvm.collections.EconomicSet;
 import org.graalvm.collections.Pair;
+import org.graalvm.compiler.core.common.type.IntegerStamp;
 import org.graalvm.compiler.debug.DebugContext;
 import org.graalvm.compiler.graph.Node;
 import org.graalvm.compiler.graph.NodeMap;
@@ -51,6 +52,7 @@ import org.graalvm.compiler.nodes.*;
 import org.graalvm.compiler.nodes.StructuredGraph;
 import org.graalvm.compiler.nodes.calc.AddNode;
 import org.graalvm.compiler.nodes.calc.IntegerBelowNode;
+import org.graalvm.compiler.nodes.calc.IntegerEqualsNode;
 import org.graalvm.compiler.nodes.calc.IntegerLessThanNode;
 import org.graalvm.compiler.nodes.cfg.ControlFlowGraph;
 import org.graalvm.compiler.nodes.cfg.HIRBlock;
@@ -205,7 +207,16 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 } else if (node instanceof IfNode ifnode) {
                     var tpi = piContexts.get(ifnode.trueSuccessor());
                     var fpi = piContexts.get(ifnode.falseSuccessor());
-                    if (ifnode.condition() instanceof IntegerLessThanNode ltnode) {
+                    if (ifnode.condition() instanceof IntegerEqualsNode eqnode) {
+                        var x = eqnode.getX(); // variable?
+                        var y = eqnode.getY(); // constant?
+                        tpi.addEdge(EssaVar.pi(y), EssaVar.pi(x), 0L);
+                        if (x.stamp(NodeView.DEFAULT) instanceof IntegerStamp intstamp && intstamp.isPositive()) {
+                            System.out.println("FJAIOFJDAIOFJIADO");
+//                            var incrementY = graph.addOrUniqueWithInputs(AddNode.create(y, ConstantNode.forInt(1), NodeView.DEFAULT));
+                            fpi.addEdge(EssaVar.pi(x), EssaVar.pi(y), -1L);
+                        }
+                    } else if (ifnode.condition() instanceof IntegerLessThanNode ltnode) {
                         // X < Y
                         var x = ltnode.getX();
                         var y = ltnode.getY();
