@@ -15,13 +15,13 @@ for i in "${!modes[@]}"; do
   arg=${args[$i]} 
   echo $i $mode
   mx benchmark jmh-dist:GRAAL_COMPILER_MICRO_BENCHMARKS \
-    -- -Dgraal.DebugABCE=false $arg --jvm-config=graal-core \
+    -- -Dgraal.Count -Dgraal.DebugABCE=false $arg --jvm-config=graal-core \
     -- ArrayHashCodeBenchmark
   mv -v jmh_result.json bench/$t/${mode}_hashcode.json
 
   SPECJVM2008=~/Downloads/SPECjvm2008 mx benchmark \
     specjvm2008:scimark.sor.small,scimark.fft.small,scimark.lu.small,scimark.sparse.small \
-    -- -Dgraal.DebugABCE=false $arg --jvm-config=graal-core \
+    -- -Dgraal.Count -Dgraal.DebugABCE=false $arg --jvm-config=graal-core \
        -Dgraal.GraalCompileOnly='SOR.*,FFT.*,LU.*,SparseCompRow.*' \
     -- -ikv
   result=$(printf '%s\n' ~/Downloads/SPECjvm2008/results/SPEC* | sort | tail -n1)

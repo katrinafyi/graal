@@ -41,6 +41,7 @@ import jdk.vm.ci.meta.PrimitiveConstant;
 import org.graalvm.collections.EconomicMap;
 import org.graalvm.collections.EconomicSet;
 import org.graalvm.collections.Pair;
+import org.graalvm.compiler.debug.DebugContext;
 import org.graalvm.compiler.graph.Node;
 import org.graalvm.compiler.graph.NodeMap;
 import org.graalvm.compiler.nodeinfo.Verbosity;
@@ -129,159 +130,168 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
     @Override
     public void run(StructuredGraph graph) {
-        if (disabled || optional && Options.DisableABCE.getValue(graph.getOptions())) {
-            return;
-        }
-        var unsafe = Options.UnsafeABCE.getValue(graph.getOptions());
-        if (unsafe) {
-            for (var node : graph.getNodes()) {
-                if (node instanceof AccessIndexedNode access) {
-                    access.setRedundantUpperBound(true);
-                    access.setRedundantLowerBound(true);
-                }
+        try (DebugContext.Scope ignored = graph.getDebug().scope("ArrayBoundsCheckElimination", graph)) {
+            if (disabled || optional && Options.DisableABCE.getValue(graph.getOptions())) {
+                return;
             }
-            return;
-        }
+            var unsafe = Options.UnsafeABCE.getValue(graph.getOptions());
+            if (unsafe) {
+                for (var node : graph.getNodes()) {
+                    if (node instanceof AccessIndexedNode access) {
+                        access.setRedundantUpperBound(true);
+                        access.setRedundantLowerBound(true);
+                    }
+                }
+                return;
+            }
 
-        out = Options.DebugABCE.getValue(graph.getOptions()) ? System.out : new PrintStream(OutputStream.nullOutputStream());
+            out = Options.DebugABCE.getValue(graph.getOptions()) ? System.out : new PrintStream(OutputStream.nullOutputStream());
+            var optlog = graph.getOptimizationLog();
 
-                // just printing the cfg
-        cfg = ControlFlowGraph.compute(graph, true, true, true, true);
-        for (var bb : cfg.getBlocks()) {
-            out.println(bb.toString(Verbosity.All));
-            out.println("ended by: " + bb.getEndNode());
-            for (var node : bb.getNodes())
-                out.println(node);
-            out.println();
-        }
+            // just printing the cfg
+            cfg = ControlFlowGraph.compute(graph, true, true, true, true);
+            for (var bb : cfg.getBlocks()) {
+                out.println(bb.toString(Verbosity.All));
+                out.println("ended by: " + bb.getEndNode());
+                for (var node : bb.getNodes())
+                    out.println(node);
+                out.println();
+            }
 
-        var zero = graph.addOrUnique(ConstantNode.forInt(0));
-        final ArrayDeque<PiContext> deque = new ArrayDeque<>();
-        var topContext = new PiContext(List.of(), cfg.getStartBlock().getBeginNode(), cfg.getStartBlock());
-        topContext.fullBlocks.addAll(Arrays.asList(cfg.getBlocks()));
-        deque.push(topContext);
+            var zero = graph.addOrUnique(ConstantNode.forInt(0));
+            final ArrayDeque<PiContext> deque = new ArrayDeque<>();
+            var topContext = new PiContext(List.of(), cfg.getStartBlock().getBeginNode(), cfg.getStartBlock());
+            topContext.fullBlocks.addAll(Arrays.asList(cfg.getBlocks()));
+            deque.push(topContext);
 //        addPiNodes(cfg.getStartBlock(), deque);
 
-        var visitor = new AddPiNodesVisitor();
-        cfg.visitDominatorTree(visitor,false);
-        for (var ctx : visitor.allContexts) {
-            piContexts.put(ctx.begin, ctx);
-        }
+            var visitor = new AddPiNodesVisitor();
+            cfg.visitDominatorTree(visitor, false);
+            for (var ctx : visitor.allContexts) {
+                piContexts.put(ctx.begin, ctx);
+            }
 
 //        ControlFlowGraph.RecursiveVisitor<?> visitor = createVisitor(graph, cfg, blockToNodes, nodeToBlock, context);
 //        cfg.visitDominatorTree(visitor, graph.isBeforeStage(GraphState.StageFlag.VALUE_PROXY_REMOVAL));
 
-        // a weighted directed graph, with (src, tgt) as keys.
-        // (u,v) = c   <==>   v - u <= c  <==> c + u >= v
-        // i.e., the weight bounds the numerical difference between the target and destination nodes.
+            // a weighted directed graph, with (src, tgt) as keys.
+            // (u,v) = c   <==>   v - u <= c  <==> c + u >= v
+            // i.e., the weight bounds the numerical difference between the target and destination nodes.
 
-        List<AccessIndexedNode> boundsChecks = new ArrayList<>();
-        EconomicSet<ConstantNode> constants = EconomicSet.create();
+            List<AccessIndexedNode> boundsChecks = new ArrayList<>();
+            EconomicSet<ConstantNode> constants = EconomicSet.create();
 
-        // graal ir does not explicitly assign to local variables. instead, we can pretend each SSA node is an assignment
-        // to a variable called itself.
-        for (Node node : graph.getNodes()) {
-            // ignored:
-            // vi = Aj.length
-            // vi = c
-            if (node instanceof ConstantNode constant) {
-                constants.add(constant);
-            } else if (node instanceof AddNode add) {
-                long weight = -1;
-                PrimitiveConstant prim;
-                Node other = null;
-                if ((prim = castConstantLong(add.getX())) != null) {
-                    weight = prim.asLong();
-                    other = add.getY();
-                } else if ((prim = castConstantLong(add.getY())) != null) {
-                    weight = prim.asLong();
-                    other = add.getX();
+            // graal ir does not explicitly assign to local variables. instead, we can pretend each SSA node is an assignment
+            // to a variable called itself.
+            for (Node node : graph.getNodes()) {
+                // ignored:
+                // vi = Aj.length
+                // vi = c
+                if (node instanceof ConstantNode constant) {
+                    constants.add(constant);
+                } else if (node instanceof AddNode add) {
+                    long weight = -1;
+                    PrimitiveConstant prim;
+                    Node other = null;
+                    if ((prim = castConstantLong(add.getX())) != null) {
+                        weight = prim.asLong();
+                        other = add.getY();
+                    } else if ((prim = castConstantLong(add.getY())) != null) {
+                        weight = prim.asLong();
+                        other = add.getX();
+                    }
+                    if (other != null)
+                        topContext.addSymmetricEdge(EssaVar.pi(other), EssaVar.pi(node), weight);
+                } else if (node instanceof IfNode ifnode) {
+                    var tpi = piContexts.get(ifnode.trueSuccessor());
+                    var fpi = piContexts.get(ifnode.falseSuccessor());
+                    if (ifnode.condition() instanceof IntegerLessThanNode ltnode) {
+                        // X < Y
+                        var x = ltnode.getX();
+                        var y = ltnode.getY();
+                        // pi variables inserted via {@link PiContext#piBases}
+
+                        // pi(X) < pi(Y)  <==> pi(X) - pi(Y) <= - 1
+                        tpi.addEdge(EssaVar.pi(y), EssaVar.pi(x), -1L);
+
+                        // X >= Y  <==> pi(Y) - pi(X) <= 0
+                        fpi.addEdge(EssaVar.pi(x), EssaVar.pi(y), 0L);
+                    } else if (ifnode.condition() instanceof IntegerBelowNode ltnode) {
+                        // FIXME handle below (unsigned less than) and less than (signed LT) properly!!!
+                        // X < Y
+                        var x = ltnode.getX();
+                        var y = ltnode.getY();
+                        // pi variables inserted via {@link PiContext#piBases}
+
+                        // pi(X) < pi(Y)  <==> pi(X) - pi(Y) <= - 1
+                        tpi.addEdge(EssaVar.pi(y), EssaVar.pi(x), -1L);
+
+                        // X >= Y  <==> pi(Y) - pi(X) <= 0
+                        fpi.addEdge(EssaVar.pi(x), EssaVar.pi(y), 0L);
+                    }
+
+                } else if (node instanceof PhiNode phinode) {
+                    for (var v : phinode.values()) {
+                        topContext.addSymmetricEdge(EssaVar.pi(v), EssaVar.pure(phinode), 0L);
+                    }
+                } else if (node instanceof AccessIndexedNode loadnode) {
+                    var ctx = piContexts.get(loadnode);
+                    var piIndex = EssaVar.pi(loadnode.index());
+                    ctx.addEdge(new EssaVar.LengthNodeVar(loadnode.array()), piIndex, -1L);
+                    ctx.addEdge(piIndex, EssaVar.pi(zero), 0L);
+                    boundsChecks.add(loadnode);
                 }
-                if (other != null)
-                    topContext.addSymmetricEdge(EssaVar.pi(other), EssaVar.pi(node), weight);
-            } else if (node instanceof IfNode ifnode) {
-                var tpi = piContexts.get(ifnode.trueSuccessor());
-                var fpi = piContexts.get(ifnode.falseSuccessor());
-                if (ifnode.condition() instanceof IntegerLessThanNode ltnode) {
-                    // X < Y
-                    var x = ltnode.getX();
-                    var y = ltnode.getY();
-                    // pi variables inserted via {@link PiContext#piBases}
 
-                    // pi(X) < pi(Y)  <==> pi(X) - pi(Y) <= - 1
-                    tpi.addEdge(EssaVar.pi(y), EssaVar.pi(x), -1L);
-
-                    // X >= Y  <==> pi(Y) - pi(X) <= 0
-                    fpi.addEdge(EssaVar.pi(x), EssaVar.pi(y), 0L);
-                } else if (ifnode.condition() instanceof IntegerBelowNode ltnode) {
-                    // FIXME handle below (unsigned less than) and less than (signed LT) properly!!!
-                    // X < Y
-                    var x = ltnode.getX();
-                    var y = ltnode.getY();
-                    // pi variables inserted via {@link PiContext#piBases}
-
-                    // pi(X) < pi(Y)  <==> pi(X) - pi(Y) <= - 1
-                    tpi.addEdge(EssaVar.pi(y), EssaVar.pi(x), -1L);
-
-                    // X >= Y  <==> pi(Y) - pi(X) <= 0
-                    fpi.addEdge(EssaVar.pi(x), EssaVar.pi(y), 0L);
-                }
-
-            } else if (node instanceof PhiNode phinode) {
-                for (var v : phinode.values()) {
-                    topContext.addSymmetricEdge(EssaVar.pi(v), EssaVar.pure(phinode), 0L);
-                }
-            } else if (node instanceof AccessIndexedNode loadnode) {
-                var ctx = piContexts.get(loadnode);
-                var piIndex = EssaVar.pi(loadnode.index());
-                ctx.addEdge(new EssaVar.LengthNodeVar(loadnode.array()), piIndex, -1L);
-                ctx.addEdge(piIndex, EssaVar.pi(zero), 0L);
-                boundsChecks.add(loadnode);
+                out.println(node.getClass() + " " + node);
             }
 
-            out.println(node.getClass() + " " +  node);
-        }
+            List<ConstantNode> constantsList = new ArrayList<>();
+            constants.iterator().forEachRemaining(x -> {
+                if (castConstantLong(x) != null) constantsList.add(x);
+            });
+            constantsList.sort(Comparator.comparing(x -> castConstantLong(x).asLong()));
 
-        List<ConstantNode> constantsList = new ArrayList<>();
-        constants.iterator().forEachRemaining(x -> {
-            if (castConstantLong(x) != null) constantsList.add(x);
-        });
-        constantsList.sort(Comparator.comparing(x -> castConstantLong(x).asLong()));
-
-        for (var i = 0; i < constantsList.size() - 1; i++) {
-            var l = constantsList.get(i);
-            var r = constantsList.get(i+1);
-            var lv = castConstantLong(l).asLong();
-            var rv = castConstantLong(r).asLong();
+            for (var i = 0; i < constantsList.size() - 1; i++) {
+                var l = constantsList.get(i);
+                var r = constantsList.get(i + 1);
+                var lv = castConstantLong(l).asLong();
+                var rv = castConstantLong(r).asLong();
 //            topContext.overlay.put(Pair.create(EssaVar.pure(l), EssaVar.pure(r)), rv-lv);
-            topContext.addEdge(EssaVar.pi(r), EssaVar.pi(l), lv-rv);
-        }
-
-        out.println("PI CONTEXT: " + piContexts);
-        int i = 2;
-        for (var boundsCheck : boundsChecks) {
-            // begin eliminating bounds checks
-            var theblock = cfg.getNodeToBlock().get(boundsCheck);
-            var lengthnode = new EssaVar.LengthNodeVar(boundsCheck.array());
-            var indexnode = boundsCheck.index();
-            List<PiContext> piContextsInScope = new ArrayList<>();
-            piContextsInScope.add(topContext);
-            for (var it = piContexts.getEntries(); it.advance(); ) {
-                var ctx = it.getValue();
-                if (ctx.fullBlocks.contains(theblock) || ctx.beginNodes.contains(boundsCheck)) {
-                    piContextsInScope.add(ctx);
-                    out.println(ctx.beginNodes);
-                }
+                topContext.addEdge(EssaVar.pi(r), EssaVar.pi(l), lv - rv);
             }
 
-            DemandProver prover;
-            DemandProver.Lattice result;
-            out.println("preparing to eliminate check for " + boundsCheck);
-            prover = new DemandProver(boundsCheck, piContextsInScope, true);
-            upperProvers.add(prover);
-            result = prover.prove();
-            out.println("upper: " + result);
-            if (result != DemandProver.Lattice.False) boundsCheck.setRedundantUpperBound(true);
+            out.println("PI CONTEXT: " + piContexts);
+            int i = 2;
+            for (var boundsCheck : boundsChecks) {
+                optlog.report(ArrayBoundsCheckEliminationPhase.class, "BoundsCheck", boundsCheck);
+
+                // begin eliminating bounds checks
+                var theblock = cfg.getNodeToBlock().get(boundsCheck);
+                var lengthnode = new EssaVar.LengthNodeVar(boundsCheck.array());
+                var indexnode = boundsCheck.index();
+                List<PiContext> piContextsInScope = new ArrayList<>();
+                piContextsInScope.add(topContext);
+                for (var it = piContexts.getEntries(); it.advance(); ) {
+                    var ctx = it.getValue();
+                    if (ctx.fullBlocks.contains(theblock) || ctx.beginNodes.contains(boundsCheck)) {
+                        piContextsInScope.add(ctx);
+                        out.println(ctx.beginNodes);
+                    }
+                }
+
+                DemandProver prover;
+                DemandProver.Lattice result;
+                out.println("preparing to eliminate check for " + boundsCheck);
+                prover = new DemandProver(boundsCheck, piContextsInScope, true);
+                upperProvers.add(prover);
+                result = prover.prove();
+                out.println("upper: " + result);
+                if (result != DemandProver.Lattice.False) {
+                    optlog.report(ArrayBoundsCheckEliminationPhase.class, "BoundsCheckUpperRedundant", boundsCheck);
+                    boundsCheck.setRedundantUpperBound(true);
+                } else {
+                    optlog.report(ArrayBoundsCheckEliminationPhase.class, "BoundsCheckUpperNonredundant", boundsCheck);
+                }
 
 //            var lowerProver = prover = new DemandProver(boundsCheck, piContextsInScope, false);
 //            lowerProvers.add(prover);
@@ -289,12 +299,15 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 //            out.println("lower: " + result);
 //            if (result != DemandProver.Lattice.False) boundsCheck.setRedundantLowerBound(true);
 
-            out.printf("DOT%d! digraph G {%n", i);
-            for (var it = prover.piEssa.getEntries(); it.advance(); ) {
-                out.printf("DOT%d! \"%s\" -> \"%s\" [ label=\"%d\" ];%n", i, it.getKey().getLeft(), it.getKey().getRight(), it.getValue());
+                out.printf("DOT%d! digraph G {%n", i);
+                for (var it = prover.piEssa.getEntries(); it.advance(); ) {
+                    out.printf("DOT%d! \"%s\" -> \"%s\" [ label=\"%d\" ];%n", i, it.getKey().getLeft(), it.getKey().getRight(), it.getValue());
+                }
+                out.printf("DOT%d! }%n", i);
+                i++;
             }
-            out.printf("DOT%d! }%n", i);
-            i++;
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
         }
     }
 
