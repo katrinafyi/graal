@@ -2,6 +2,7 @@ package org.graalvm.compiler.core.test;
 
 import java.lang.reflect.InvocationTargetException;
 
+@SuppressWarnings("unused")
 public class ArrayBoundsCheckEliminationTestCases {
 
     public static int constant_p(int[] a) {
@@ -36,6 +37,16 @@ public class ArrayBoundsCheckEliminationTestCases {
         return a[x];
     }
 
+    public static int loop1_c(int[] a) {
+        int s = 0;
+        if (!(5 <= a.length)) {
+            return a.length | 0xff;
+        }
+        for (int i = 0; i < 5; i++) {
+            s += a[i];
+        }
+        return s;
+    }
 
     public static int loop1_p(int[] a, int max) {
         int s = 0;

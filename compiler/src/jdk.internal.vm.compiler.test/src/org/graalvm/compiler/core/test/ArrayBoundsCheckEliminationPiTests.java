@@ -300,4 +300,10 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
 //        testCommon("bubblesort");
 //    }
 
+    @Test
+    public void test_loop1_c() {
+        prepare("loop1_c", ArrayBoundsCheckEliminationTestCases.class);
+        Assert.assertEquals(TRUE, phase.upperProvers.get(0).prove());
+    }
+
 }
