@@ -48,3 +48,4 @@ to do:
 - we also need to make graphs (charts) and graphs (seafoam).
 - after this, we will be ready to start writing and start poster.
 - it would be good to at least encode the optimisation in Graal. verification of soundness may be difficult.
+- also: investigate stamping of array length node and constant-bounded loop.
