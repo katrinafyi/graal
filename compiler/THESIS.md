@@ -49,3 +49,5 @@ to do:
 - after this, we will be ready to start writing and start poster.
 - it would be good to at least encode the optimisation in Graal. verification of soundness may be difficult.
 - also: investigate stamping of array length node and constant-bounded loop.
+  - A: we find that stamps can only represent context-insensitive facts (i.e. facts which are always true of the node). this prevents it from considering information gleaned via conditions.
+  - A2: this is in addition to their inability to be bounded by array length values.
