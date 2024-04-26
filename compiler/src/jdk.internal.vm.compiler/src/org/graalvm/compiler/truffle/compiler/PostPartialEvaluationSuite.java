@@ -46,7 +46,7 @@ public class PostPartialEvaluationSuite extends PhaseSuite<TruffleTierContext> {
         appendPhase(new ConvertDeoptimizeToGuardPhase(canonicalizerPhase));
         appendPhase(new InlineReplacementsPhase());
         appendPhase(new ConditionalEliminationPhase(false));
-        appendPhase(new ArrayBoundsCheckEliminationPhase(ArrayBoundsCheckEliminationPhase.Optionality.Optional));
+        appendPhase(new ArrayBoundsCheckEliminationPhase());
         appendPhase(canonicalizerPhase);
         appendPhase(new FrameAccessVerificationPhase());
         appendPhase(new PartialEscapePhase(iterativePartialEscape, canonicalizerPhase, optionValues));

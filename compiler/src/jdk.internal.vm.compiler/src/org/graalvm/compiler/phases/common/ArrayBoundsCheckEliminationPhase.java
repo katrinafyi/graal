@@ -83,14 +83,6 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         Required;
     }
 
-    /**
-     * Creates a dead code elimination phase that will be run irrespective of
-     * {link Options#ReduceDCE}.
-     */
-    public ArrayBoundsCheckEliminationPhase() {
-        this(Optionality.Required);
-    }
-
     @Override
     protected boolean shouldDumpBeforeAtBasicLevel() {
         return true;
@@ -101,15 +93,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         return true;
     }
 
-    /**
-     * Creates a dead code elimination phase that will be run only if it is
-     * {@linkplain Optionality#Required non-optional} or {link Options#ReduceDCE} is false.
-     */
-    public ArrayBoundsCheckEliminationPhase(Optionality optionality) {
-        this.optional = optionality == Optionality.Optional;
-    }
-
-    private final boolean optional;
+    private final boolean optional = true;
     private final boolean disabled = false;
 
     private ControlFlowGraph cfg;
@@ -141,7 +125,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 for (var node : graph.getNodes()) {
                     if (node instanceof AccessIndexedNode access) {
                         access.setRedundantUpperBound(true);
-                        access.setRedundantLowerBound(true);
+//                        access.setRedundantLowerBound(true);
                     }
                 }
                 return;
@@ -212,7 +196,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                         var y = eqnode.getY(); // constant?
                         tpi.addEdge(EssaVar.pi(y), EssaVar.pi(x), 0L);
                         if (x.stamp(NodeView.DEFAULT) instanceof IntegerStamp intstamp && intstamp.isPositive()) {
-                            System.out.println("FJAIOFJDAIOFJIADO");
+                            // System.out.println("FJAIOFJDAIOFJIADO");
 //                            var incrementY = graph.addOrUniqueWithInputs(AddNode.create(y, ConstantNode.forInt(1), NodeView.DEFAULT));
                             fpi.addEdge(EssaVar.pi(x), EssaVar.pi(y), -1L);
                         }

@@ -78,16 +78,20 @@ for f in d.glob('*'):
 # print(allresults)
 
 df = pd.DataFrame(vars(x) for x in allresults)
-df.sort_values(by='mode', key=lambda x: x.map(modes.index))
+df = df.sort_values(by='mode', key=lambda x: x.map(modes.index))
 df['x'] = df['benchmark'] + ' ' + df['test']
+df = (df.sort_values(by=['x']))
 
+print(df)
 # plt.style.use('./tex.mplstyle')
 # plt.yscale('log')
 # plt.xticks(rotation=45)
-sns.barplot(data=df.loc[df['unit'] != 'ops/s'], x='x', y='result', hue='mode')
+sns.barplot(data=df.loc[df['unit'] == 'ops/s'], x='x', y='result', hue='mode')
 # ax2 = plt.twinx()
 # sns.barplot(ax=ax2, data=df.loc[df['unit'] == 'ops/min'], x='x', y='result', hue='mode')
 plt.show()
+
+sys.exit()
 
 
 fig, ax = plt.subplots(figsize=(4,4))

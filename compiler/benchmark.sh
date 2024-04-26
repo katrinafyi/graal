@@ -16,7 +16,7 @@ for i in "${!modes[@]}"; do
   echo $i $mode
   mx benchmark jmh-dist:GRAAL_COMPILER_MICRO_BENCHMARKS \
     -- -Dgraal.Count -Dgraal.DebugABCE=false $arg --jvm-config=graal-core \
-    -- ArrayHashCodeBenchmark
+    --
   mv -v jmh_result.json bench/$t/${mode}_hashcode.json
 
   SPECJVM2008=~/Downloads/SPECjvm2008 mx benchmark \
