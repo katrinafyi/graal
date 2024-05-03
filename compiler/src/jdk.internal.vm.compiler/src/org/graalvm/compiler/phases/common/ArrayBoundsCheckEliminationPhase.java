@@ -70,11 +70,13 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
     public static class Options {
         // @formatter:off
         @Option(help = "Disable array bounds check elimination", type = OptionType.Debug)
-        public static final OptionKey<Boolean> DisableABCE = new OptionKey<>(true);
+        public static final OptionKey<Boolean> DisableABCE = new OptionKey<>(false);
         @Option(help = "Print debugging output for array bounds check elimination", type = OptionType.Debug)
         public static final OptionKey<Boolean> DebugABCE = new OptionKey<>(true);
         @Option(help = "UNSAFE ignoring of all bounds checks", type = OptionType.Debug)
         public static final OptionKey<Boolean> UnsafeABCE = new OptionKey<>(false);
+        @Option(help = "Perform ABCE after loop phases", type = OptionType.Expert)
+        public static final OptionKey<Boolean> PeeledABCE = new OptionKey<>(false);
         // @formatter:on
     }
 
@@ -92,9 +94,6 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
     protected boolean shouldDumpAfterAtBasicLevel() {
         return true;
     }
-
-    private final boolean optional = true;
-    private final boolean disabled = false;
 
     private ControlFlowGraph cfg;
     private final EconomicMap<Node, PiContext> piContexts = EconomicMap.create();
@@ -117,7 +116,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
     @Override
     public void run(StructuredGraph graph) {
         try (DebugContext.Scope ignored = graph.getDebug().scope("ArrayBoundsCheckElimination", graph)) {
-            if (disabled || optional && Options.DisableABCE.getValue(graph.getOptions())) {
+            if (Options.DisableABCE.getValue(graph.getOptions())) {
                 return;
             }
             var unsafe = Options.UnsafeABCE.getValue(graph.getOptions());

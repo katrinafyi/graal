@@ -1,6 +1,7 @@
 package org.graalvm.compiler.core.test;
 
 import jdk.vm.ci.meta.ResolvedJavaMethod;
+import org.graalvm.compiler.api.directives.GraalDirectives;
 import org.graalvm.compiler.debug.DebugContext;
 import org.graalvm.compiler.graph.Node;
 import org.graalvm.compiler.loop.phases.LoopFullUnrollPhase;
@@ -21,9 +22,6 @@ import org.junit.Test;
 import java.util.List;
 import java.util.Objects;
 
-import static org.graalvm.compiler.core.common.GraalOptions.LoopPeeling;
-import static org.graalvm.compiler.core.common.GraalOptions.LoopUnswitch;
-
 @SuppressWarnings("unused")
 public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
     private final ArrayBoundsCheckEliminationPhase.DemandProver.Lattice TRUE = ArrayBoundsCheckEliminationPhase.DemandProver.Lattice.True;
@@ -35,6 +33,8 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
     List<LoadIndexedNode> loads;
     ArrayBoundsCheckEliminationPhase phase;
 
+    boolean useLoopPeeling;
+
     private void prepare(String testMethod) {
         prepare(testMethod, getClass());
     }
@@ -44,20 +44,24 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
         StructuredGraph graph = parseEager(meth, StructuredGraph.AllowAssumptions.NO);
 
         DebugContext debug = graph.getDebug();
-        debug.dump(DebugContext.BASIC_LEVEL, graph, "Graph");
+//        debug.dump(DebugContext.BASIC_LEVEL, graph, "Graph");
+        useLoopPeeling = ArrayBoundsCheckEliminationPhase.Options.PeeledABCE.getValue(graph.getOptions());
 
         CoreProviders context = getProviders();
         CanonicalizerPhase canonicalizer = createCanonicalizerPhase();
-        try (DebugContext.Scope ignored = debug.scope("ABCETest", graph)) {
+        try (DebugContext.Scope ignored = debug.scope("GraalCompiler", graph)) {
 
             canonicalizer.apply(graph, context);
             new IterativeConditionalEliminationPhase(canonicalizer, true).apply(graph, context);
 
-            LoopPolicies loopPolicies = new DefaultLoopPolicies();
-            new LoopFullUnrollPhase(canonicalizer, loopPolicies).apply(graph, context);
-            new LoopPeelingPhase(loopPolicies, canonicalizer).apply(graph, context);
-            new LoopUnswitchingPhase(loopPolicies, canonicalizer).apply(graph, context);
+            if (useLoopPeeling) {
+                LoopPolicies loopPolicies = new DefaultLoopPolicies();
+                new LoopFullUnrollPhase(canonicalizer, loopPolicies).apply(graph, context);
+                new LoopPeelingPhase(loopPolicies, canonicalizer).apply(graph, context);
+                new LoopUnswitchingPhase(loopPolicies, canonicalizer).apply(graph, context);
+            }
 
+            debug.dump(DebugContext.BASIC_LEVEL, graph, "GraalCompiler");
             phase = new ArrayBoundsCheckEliminationPhase();
             phase.apply(graph, context);
         } catch (Throwable e) {
@@ -131,29 +135,21 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
     }
 
     public static int bubblesort(int[] a) {
-        var limit = a.length;
-        var st = -1;
+        var upper = a.length;
+        var lower = -1;
         var s = 0;
-        while (st < limit) {
-            st++;
-            limit--;
-            for (var j = st; j < limit; j++) {
-                if (a[j] > a[j+1]) {
-                    s += 1;
-//                    var tmp = a[j];
-//                    a[j] = a[j+1];
-//                    a[j+1] = tmp;
-                }
+        while (lower < upper) {
+            lower++;
+            upper--;
+            for (var j = lower; j < upper; j++) {
+                GraalDirectives.blackhole(a[j]);
+//                GraalDirectives.blackhole(a[j+1]);
             }
 
-            for (var j = limit; --j >= st; ) {
-                if (a[j] > a[j+1]) {
-                    s += 1;
-//                    var tmp = a[j];
-//                    a[j] = a[j+1];
-//                    a[j+1] = tmp;
-                }
-            }
+//            for (var j = limit; --j >= st; ) {
+//                GraalDirectives.blackhole(a[j]);
+//                GraalDirectives.blackhole(a[j+1]);
+//            }
         }
         return s;
     }

@@ -92,6 +92,8 @@ public class HighTier extends BaseTier<HighTierContext> {
             appendPhase(new DominatorBasedGlobalValueNumberingPhase(canonicalizer));
         }
 
+        if (!ArrayBoundsCheckEliminationPhase.Options.PeeledABCE.getValue(options))
+            appendPhase(new ArrayBoundsCheckEliminationPhase());
 
         LoopPolicies loopPolicies = createLoopPolicies(options);
         appendPhase(new LoopFullUnrollPhase(canonicalizer, loopPolicies));
@@ -108,7 +110,8 @@ public class HighTier extends BaseTier<HighTierContext> {
         // PartialEscapePhase and BoxNodeOptimizationPhase).
         appendPhase(new BoxNodeIdentityPhase());
 
-        appendPhase(new ArrayBoundsCheckEliminationPhase());
+        if (ArrayBoundsCheckEliminationPhase.Options.PeeledABCE.getValue(options))
+            appendPhase(new ArrayBoundsCheckEliminationPhase());
 
         if (PartialEscapeAnalysis.getValue(options)) {
             appendPhase(new FinalPartialEscapePhase(true, canonicalizer, null, options));
