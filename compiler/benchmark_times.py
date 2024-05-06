@@ -23,6 +23,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.colors
 from pathlib import Path
+from collections import defaultdict
 
 
 assert len(sys.argv) > 1
@@ -31,8 +32,9 @@ d = Path(sys.argv[1])
 print(f'{d=}')
 
 
-jmh_suites = {'hashcode'}
-specjvm_suites = {'sor'}
+jmh_suites = {'micro', 'hashcode'}
+jmh_suites = {'micro'}
+specjvm_suites = {'scimark'}
 modes = ['base', 'abce', 'unsafe']
 
 @dataclasses.dataclass
@@ -77,18 +79,33 @@ for f in d.glob('*'):
 
 # print(allresults)
 
+name_map = defaultdict(str, {
+  'scimark.fft.small': 'FFT',
+  'scimark.lu.small': 'LU',
+  'scimark.sor.small': 'SOR',
+  'scimark.sparse.small': 'Sparse',
+  'selection': 'Selection sort',
+  'cocktail': 'Cocktail sort',
+  'insert': 'Insertion sort',
+  'bubble': 'Bubble sort',
+})
+
 df = pd.DataFrame(vars(x) for x in allresults)
-df = df.sort_values(by='mode', key=lambda x: x.map(modes.index))
-df['x'] = df['benchmark'] + ' ' + df['test']
+df = df.sort_values(by='mode', key=lambda x: x.map(modes.index)).reset_index(drop=True)
+df['x'] = df['test'].map(name_map.get)
 df = (df.sort_values(by=['x']))
+df = df.reset_index(drop=True)
 
 print(df)
-# plt.style.use('./tex.mplstyle')
+plt.style.use('./tex.mplstyle')
 # plt.yscale('log')
 # plt.xticks(rotation=45)
-sns.barplot(data=df.loc[df['unit'] == 'ops/s'], x='x', y='result', hue='mode')
+sns.barplot(data=df.loc[(df['unit'] != 'ops/s')], x='x', y='result', hue='mode', hue_order=['base', 'abce', 'unsafe'])
 # ax2 = plt.twinx()
 # sns.barplot(ax=ax2, data=df.loc[df['unit'] == 'ops/min'], x='x', y='result', hue='mode')
+plt.xlabel('')
+plt.ylabel('benchmark result (ops/min)')
+plt.title('SciMark 2 Benchmarks')
 plt.show()
 
 sys.exit()
