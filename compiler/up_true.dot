@@ -1,0 +1,51 @@
+digraph G {
+  graph [bgcolor="transparent"];
+  node0 [label="0 Start",shape="rectangle",fontname="Arial",style="filled",color="black",fillcolor="#e98693",fontcolor="#1a1919"];
+  node6 [label="6 LoopBegin",shape="rectangle",fontname="Arial",style="filled",color="black",fillcolor="#e98693",fontcolor="#1a1919",group=y];
+  node7 [label="7 ϕ",shape="rectangle",fontname="Arial",style="filled",color="black",fillcolor="#f9f9f9",fontcolor="#1a1919"];
+  node9 [label="9 ArrayLength",shape="rectangle",fontname="Arial",style="filled",color="black",fillcolor="#c39bd3",fontcolor="#1a1919",group=y];
+  node10 [label="10 <",shape="diamond",fontname="Arial",style="filled",color="black",fillcolor="#3cb4a4",fontcolor="#1a1919"];
+  node12 [label="12 LoopExit",shape="rectangle",fontname="Arial",style="filled",color="black",fillcolor="#e98693",fontcolor="#1a1919"];
+  node15 [label="15 If",shape="rectangle",fontname="Arial",style="filled",color="black",fillcolor="#e98693",fontcolor="#1a1919",group=x];
+  node16 [label="16 LoadIndexed",shape="rectangle",fontname="Arial",style="filled",color="black",fillcolor="#c39bd3",fontcolor="#1a1919",group=x];
+  node17 [label="17 Blackhole ",shape="rectangle",fontname="Arial",style="filled",color="black",fillcolor="#f9f9f9",fontcolor="#1a1919",group=x];
+  node19 [label="19 +",shape="diamond",fontname="Arial",style="filled",color="black",fillcolor="#3cb4a4",fontcolor="#1a1919"];
+  node20 [label="20 LoopEnd",shape="rectangle",fontname="Arial",style="filled",color="black",fillcolor="#e98693",fontcolor="#1a1919"];
+  node21 [label="21 Return",shape="rectangle",fontname="Arial",style="filled",color="black",fillcolor="#e98693",fontcolor="#1a1919"];
+
+
+  node3 [label="3 Constant(0)",shape="rectangle",fontname="Arial",style="filled",color="black",fillcolor="#f9f9f9",fontcolor="#1a1919"];
+  node3 -> node7 [fontname="arial",color="#343d46",fontcolor="#343d46",penwidth=4];
+
+
+  /*
+  node6 -> node9 [fontname="arial",color="#da2d4f",fontcolor="#da2d4f",penwidth=2];
+  node6 -> node7 [fontname="arial",color="#343d46",fontcolor="#343d46",style="dashed",dir="back"];
+  inline3x7 [label="3 C(0)",shape="oval",fontname="Arial",style="filled",color="black",fillcolor="#d7ede7",fontcolor="#1a1919",fontsize="8"];
+  inline3x7 -> node7 [label="from 5",fontname="arial",color="#3cb4a4",fontcolor="#3cb4a4",arrowhead="none",fontsize="8"];
+  node19 -> node7 [label="from 20",fontname="arial",color="#3cb4a4",fontcolor="#3cb4a4"];
+  inline1x9 [label="1 P(0)",shape="oval",fontname="Arial",style="filled",color="black",fillcolor="#d7ede7",fontcolor="#1a1919",fontsize="8"];
+  inline1x9 -> node9 [label="array",fontname="arial",color="#3cb4a4",fontcolor="#3cb4a4",arrowhead="none",fontsize="8"];
+  node9 -> node15 [label=" [0 - 2147483647]",fontname="arial",color="#da2d4f",fontcolor="#da2d4f",penwidth=2];
+  node7 -> node10 [label="x",fontname="arial",color="#3cb4a4",fontcolor="#3cb4a4"];
+  node9 -> node10 [label="y [0 - 2147483647]",fontname="arial",color="#3cb4a4",fontcolor="#3cb4a4"];
+  node6 -> node12 [fontname="arial",color="#343d46",fontcolor="#343d46",style="dashed",dir="back"];
+  node12 -> node21 [fontname="arial",color="#da2d4f",fontcolor="#da2d4f",penwidth=2];
+  node10 -> node15 [label="?",fontname="arial",color="#3cb4a4",fontcolor="#3cb4a4"];
+  node15 -> node12 [label="F",fontname="arial",color="#da2d4f",fontcolor="#da2d4f",penwidth=2];
+  inline1x16 [label="1 P(0)",shape="oval",fontname="Arial",style="filled",color="black",fillcolor="#d7ede7",fontcolor="#1a1919",fontsize="8"];
+  inline1x16 -> node16 [label="array",fontname="arial",color="#3cb4a4",fontcolor="#3cb4a4",arrowhead="none",fontsize="8"];
+  node7 -> node16 [label="index",fontname="arial",color="#3cb4a4",fontcolor="#3cb4a4"];
+  node16 -> node17 [fontname="arial",color="#da2d4f",fontcolor="#da2d4f",penwidth=2];
+  node16 -> node17 [label="value",fontname="arial",color="#3cb4a4",fontcolor="#3cb4a4"];
+  node17 -> node20 [fontname="arial",color="#da2d4f",fontcolor="#da2d4f",penwidth=2];
+  node7 -> node19 [label="x",fontname="arial",color="#3cb4a4",fontcolor="#3cb4a4"];
+  inline18x19 [label="18 C(1)",shape="oval",fontname="Arial",style="filled",color="black",fillcolor="#d7ede7",fontcolor="#1a1919",fontsize="8"];
+  inline18x19 -> node19 [label="y",fontname="arial",color="#3cb4a4",fontcolor="#3cb4a4",arrowhead="none",fontsize="8"];
+  node6 -> node20 [fontname="arial",color="#da2d4f",fontcolor="#da2d4f",penwidth=4,dir="back"];
+  inline3x21 [label="3 C(0)",shape="oval",fontname="Arial",style="filled",color="black",fillcolor="#d7ede7",fontcolor="#1a1919",fontsize="8"];
+  inline3x21 -> node21 [label="result",fontname="arial",color="#3cb4a4",fontcolor="#3cb4a4",arrowhead="none",fontsize="8"];
+  node0 -> node6 [fontname="arial",color="#da2d4f",fontcolor="#da2d4f",penwidth=2];
+  node15 -> node16 [label="T",fontname="arial",color="#da2d4f",fontcolor="#da2d4f",penwidth=2];
+  */
+}
