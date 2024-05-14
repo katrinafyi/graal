@@ -67,6 +67,8 @@ def parse_specjvm(p: Path) -> Generator[Result, None, None]:
 
 allresults = []
 for f in d.glob('*'):
+  print(f)
+  if f.suffix == '.csv': continue
   terms = f.stem.split('_')
   print(terms)
   results = []
@@ -95,18 +97,23 @@ df = df.sort_values(by='mode', key=lambda x: x.map(modes.index)).reset_index(dro
 df['x'] = df['test'].map(name_map.get)
 df = (df.sort_values(by=['x']))
 df = df.reset_index(drop=True)
+df['mode'] = list(map(lambda x: str(x).title() if str(x) != 'abce' else 'ABCE', df['mode']))
 
 print(df)
 plt.style.use('./tex.mplstyle')
+plt.figure(figsize=(4.1,3))
 # plt.yscale('log')
 # plt.xticks(rotation=45)
-sns.barplot(data=df.loc[(df['unit'] != 'ops/s')], x='x', y='result', hue='mode', hue_order=['base', 'abce', 'unsafe'])
+sns.barplot(data=df.loc[(df['unit'] != 'ops/s')], x='x', y='result', hue='mode', hue_order=['Base', 'ABCE', 'Unsafe'])
 # ax2 = plt.twinx()
 # sns.barplot(ax=ax2, data=df.loc[df['unit'] == 'ops/min'], x='x', y='result', hue='mode')
 plt.xlabel('')
 plt.ylabel('benchmark result (ops/min)')
 plt.title('SciMark 2 Benchmarks')
-plt.show()
+plt.legend(loc='lower left', framealpha=1)
+# plt.show()
+
+plt.savefig('fig.pdf', bbox_inches='tight')
 
 sys.exit()
 

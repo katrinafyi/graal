@@ -1255,7 +1255,10 @@ public abstract class DefaultJavaLoweringProvider implements LoweringProvider {
 
         if (n.isRedundantUpperBound()) {
             if (n.isRedundantLowerBound()) return null;
-            boundsCheck = IntegerBelowNode.create(n.index(), ConstantNode.forLong(Integer.MAX_VALUE + 1L), NodeView.DEFAULT);
+            var constant = graph.addOrUnique(ConstantNode.forLong(Integer.MAX_VALUE + 1L));
+            if (n.index().stamp(NodeView.DEFAULT) instanceof IntegerStamp istamp && istamp.getBits() == 32)
+                return null; // XXX: if index is only 32-bits, it _probably_ will not overflow into negatives.
+            boundsCheck = IntegerBelowNode.create(n.index(), constant, NodeView.DEFAULT);
         } else {
             ValueNode arrayLength = readOrCreateArrayLength(n, array, tool, graph);
             boundsCheck = IntegerBelowNode.create(n.index(), arrayLength, NodeView.DEFAULT);

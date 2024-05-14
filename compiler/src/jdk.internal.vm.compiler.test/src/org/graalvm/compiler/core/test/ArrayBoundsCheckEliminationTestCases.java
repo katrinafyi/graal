@@ -1,10 +1,22 @@
 package org.graalvm.compiler.core.test;
 
+import org.graalvm.compiler.api.directives.GraalDirectives;
+
 import java.lang.reflect.InvocationTargetException;
 
 @SuppressWarnings("unused")
 public class ArrayBoundsCheckEliminationTestCases {
 
+    public static void example1_f(int[] a) {
+        for (int i = 0; i < a.length; i++) {
+            GraalDirectives.blackhole(a[i]);
+        }
+    }
+    public static void example2_p(int[] a) {
+        for (int i = a.length + 53; i >= 0; i--) {
+            GraalDirectives.blackhole(a[i]);
+        }
+    }
     public static int constant_p(int[] a) {
         return a[5];
     }

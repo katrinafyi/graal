@@ -151,7 +151,7 @@ public final class IntegerBelowNode extends IntegerLowerThanNode {
                 IntegerStamp xStamp = (IntegerStamp) forX.stamp(view);
                 IntegerStamp yStamp = (IntegerStamp) forY.stamp(view);
                 int bits = xStamp.getBits();
-                assert yStamp.getBits() == bits;
+                assert yStamp.getBits() == bits : "ystamp: " + yStamp.getBits() + " xbits: " + bits;
                 LogicNode logic = canonicalizeRangeFlip(forX, forY, bits, false, view);
                 if (logic != null) {
                     return logic;

@@ -2,6 +2,8 @@ package org.graalvm.compiler.core.test;
 
 import jdk.vm.ci.meta.ResolvedJavaMethod;
 import org.graalvm.compiler.api.directives.GraalDirectives;
+import org.graalvm.compiler.core.phases.HighTier;
+import org.graalvm.compiler.core.phases.MidTier;
 import org.graalvm.compiler.debug.DebugContext;
 import org.graalvm.compiler.graph.Node;
 import org.graalvm.compiler.loop.phases.LoopFullUnrollPhase;
@@ -13,14 +15,22 @@ import org.graalvm.compiler.nodes.loop.DefaultLoopPolicies;
 import org.graalvm.compiler.nodes.loop.LoopPolicies;
 import org.graalvm.compiler.nodes.spi.CoreProviders;
 import org.graalvm.compiler.phases.common.ArrayBoundsCheckEliminationPhase;
+import org.graalvm.compiler.phases.common.BoxNodeIdentityPhase;
+import org.graalvm.compiler.phases.common.BoxNodeOptimizationPhase;
 import org.graalvm.compiler.phases.common.CanonicalizerPhase;
+import org.graalvm.compiler.phases.common.HighTierLoweringPhase;
 import org.graalvm.compiler.phases.common.IterativeConditionalEliminationPhase;
+import org.graalvm.compiler.virtual.phases.ea.FinalPartialEscapePhase;
+import org.graalvm.compiler.virtual.phases.ea.ReadEliminationPhase;
 import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 
 import java.util.List;
 import java.util.Objects;
+
+import static org.graalvm.compiler.core.common.GraalOptions.OptReadElimination;
+import static org.graalvm.compiler.core.common.GraalOptions.PartialEscapeAnalysis;
 
 @SuppressWarnings("unused")
 public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
@@ -64,6 +74,10 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
             debug.dump(DebugContext.BASIC_LEVEL, graph, "GraalCompiler");
             phase = new ArrayBoundsCheckEliminationPhase();
             phase.apply(graph, context);
+            new BoxNodeIdentityPhase().apply(graph, context);
+            new BoxNodeOptimizationPhase(canonicalizer).apply(graph, context);
+            new HighTierLoweringPhase(canonicalizer).apply(graph, context);
+//            new IterativeConditionalEliminationPhase(canonicalizer, true).apply(graph, context);
         } catch (Throwable e) {
             throw new RuntimeException(e);
         }
@@ -134,29 +148,55 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
         Assert.assertEquals("elimination array_two_load " + prover2, TRUE, prover2.prove());
     }
 
-    public static int bubblesort(int[] a) {
-        var upper = a.length;
-        var lower = -1;
-        var s = 0;
+    public static void bubblesort(int[] a) {
+        int upper = a.length;
+        int lower = -1;
+
         while (lower < upper) {
             lower++;
             upper--;
             for (var j = lower; j < upper; j++) {
                 GraalDirectives.blackhole(a[j]);
-//                GraalDirectives.blackhole(a[j+1]);
+                GraalDirectives.blackhole(a[j+1]);
             }
 
-//            for (var j = limit; --j >= st; ) {
-//                GraalDirectives.blackhole(a[j]);
-//                GraalDirectives.blackhole(a[j+1]);
-//            }
+            for (var j = upper; --j >= lower; ) {
+                GraalDirectives.blackhole(a[j]);
+                GraalDirectives.blackhole(a[j+1]);
+            }
         }
-        return s;
     }
+
+    public static void paper(int[] a) {
+        int upper = a.length;
+        int lower = -1;
+
+        while (lower < upper) {
+            lower++;
+            upper--;
+            for (var j = lower; j < upper; j++) {
+                GraalDirectives.blackhole(a[j]);
+                GraalDirectives.blackhole(a[j+1]);
+            }
+        }
+    }
+
 
     @Test
     public void test_bubblesort() {
         prepare("bubblesort");
+        System.out.println(phase.upperProvers);
+//        Assert.assertEquals(4, phase.upperProvers.size());
+        for (var provers : List.of(phase.upperProvers, phase.lowerProvers)) {
+            var side = provers == phase.upperProvers ? "upper" : "lower";
+            for (var p : provers) {
+                Assert.assertEquals(side + " redundant: " + p.load, REDUCED, p.prove());
+            }
+        }
+    }
+    @Test
+    public void test_paper() {
+        prepare("paper");
         System.out.println(phase.upperProvers);
 //        Assert.assertEquals(4, phase.upperProvers.size());
         for (var provers : List.of(phase.upperProvers, phase.lowerProvers)) {
@@ -305,6 +345,16 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
     @Ignore("unable to handle multiplication")
     public void test_loop2addmul_f() {
         testCommon("loop2addmul_f");
+    }
+
+    @Test
+    public void test_example1() {
+        testCommon("example1_f");
+    }
+
+    @Test
+    public void test_example2() {
+        testCommon("example2_p");
     }
 //    @Test
 //    public void test_bubblesort() {
