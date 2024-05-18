@@ -56,6 +56,7 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
         DebugContext debug = graph.getDebug();
 //        debug.dump(DebugContext.BASIC_LEVEL, graph, "Graph");
         useLoopPeeling = ArrayBoundsCheckEliminationPhase.Options.PeeledABCE.getValue(graph.getOptions());
+        Boolean testWithLowering = ArrayBoundsCheckEliminationPhase.Options.TestLoweringABCE.getValue(graph.getOptions());
 
         CoreProviders context = getProviders();
         CanonicalizerPhase canonicalizer = createCanonicalizerPhase();
@@ -74,9 +75,11 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
             debug.dump(DebugContext.BASIC_LEVEL, graph, "GraalCompiler");
             phase = new ArrayBoundsCheckEliminationPhase();
             phase.apply(graph, context);
-            new BoxNodeIdentityPhase().apply(graph, context);
-            new BoxNodeOptimizationPhase(canonicalizer).apply(graph, context);
-            new HighTierLoweringPhase(canonicalizer).apply(graph, context);
+            if (testWithLowering) {
+                new BoxNodeIdentityPhase().apply(graph, context);
+                new BoxNodeOptimizationPhase(canonicalizer).apply(graph, context);
+                new HighTierLoweringPhase(canonicalizer).apply(graph, context);
+            }
 //            new IterativeConditionalEliminationPhase(canonicalizer, true).apply(graph, context);
         } catch (Throwable e) {
             throw new RuntimeException(e);

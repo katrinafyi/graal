@@ -77,6 +77,8 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         public static final OptionKey<Boolean> UnsafeABCE = new OptionKey<>(false);
         @Option(help = "Perform ABCE after loop phases", type = OptionType.Expert)
         public static final OptionKey<Boolean> PeeledABCE = new OptionKey<>(false);
+        @Option(help = "Perform lowering in ABCE tests", type = OptionType.Debug)
+        public static final OptionKey<Boolean> TestLoweringABCE = new OptionKey<>(false);
         // @formatter:on
     }
 
