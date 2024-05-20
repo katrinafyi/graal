@@ -51,3 +51,22 @@ to do:
 - also: investigate stamping of array length node and constant-bounded loop.
   - A: we find that stamps can only represent context-insensitive facts (i.e. facts which are always true of the node). this prevents it from considering information gleaned via conditions.
   - A2: this is in addition to their inability to be bounded by array length values (which are not constant).
+
+2024-05-20:
+- q: does the most trivial of redundant bounds check get eliminated? (i.e. that with exactly the correct guard preceding it)
+    - a: for constant indices, yes. it appears that this also holds for runtime-but-not-compile-constant indices. this is only done after high tier lowering -> floating read -> iterative cond elim.
+- q: does it handle repeated bounds checks?
+- i surmise that cache locality has is a strong factor. in the case of sparse/jagged matrices, the need to load memory for bounds checks is significant. maybe we can simulate this by generating many distinct arrays.
+  ```java
+  int t1 = ...; // for transitivity, from external source. possibly use transitivity array with appropriate assertions, to support testing variable transitivity lengths.
+  if (t1 <= a1.length) // pos 1
+  for (int i1 = 0; i1 < 1 && i1 < t1; i1++) {
+  if (t1 <= a1.length) // pos2
+  for (int i2 = 0; i2 < 1 && i2 < a2.length; i2++) {
+    a1[i1] + a2[i2] + ...;
+  }
+  }
+  ```
+  vary: multiple arrays vs single array.
+  vary: transitivity? possibly by introducing a array of transitive variables for each array. we can very number of transitive elements.
+  vary: number of bounds checks.
