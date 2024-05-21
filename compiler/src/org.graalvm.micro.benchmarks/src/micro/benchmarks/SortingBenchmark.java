@@ -8,19 +8,20 @@ import org.openjdk.jmh.annotations.State;
 
 import java.util.Arrays;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.IntUnaryOperator;
 
 @State(Scope.Thread)
 public class SortingBenchmark extends BenchmarkBase {
 
-    @Param({"576"}) private int N;
+    @Param({"10000"}) private int N;
 
     private int[] list;
 
-    @Setup
-    public void setup() throws Exception {
+    @Setup public void setup() throws Exception {
         list = new int[N];
         var random = ThreadLocalRandom.current();
-        Arrays.setAll(list, i -> random.nextInt());
+        IntUnaryOperator intUnaryOperator = i -> random.nextInt();
+        Arrays.setAll(list, intUnaryOperator);
     }
 
     public static void bubbleSort(int[] comparable) {
