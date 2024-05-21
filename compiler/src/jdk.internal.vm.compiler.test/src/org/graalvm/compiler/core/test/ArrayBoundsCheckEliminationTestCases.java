@@ -319,6 +319,75 @@ public class ArrayBoundsCheckEliminationTestCases {
         return s;
     }
 
+
+    int big_n20_multipleTrue_trans0_transrandomTrue_f(int[] a0,int[] a1,int[] a2,int[] a3,int[] a4,int[] a5,int[] a6,int[] a7,int[] a8,int[] a9,int[] a10,int[] a11,int[] a12,int[] a13,int[] a14,int[] a15,int[] a16,int[] a17,
+                                                    int[] a18, int[] a19, int[] a20, int[] t) {
+        int s = 0;
+        if (!(t.length >= 1)) return -1;
+        var t0 = t[0];
+        if (t0 <= a0.length) for (int i0 = 0; i0 < 1 && i0 < t0; i0++) {
+            for (int i1 = 0; i1 < 1 && i1 < a1.length; i1++) {
+                for (int i2 = 0; i2 < 1 && i2 < a2.length; i2++) {
+                    for (int i3 = 0; i3 < 1 && i3 < a3.length; i3++) {
+                        for (int i4 = 0; i4 < 1 && i4 < a4.length; i4++) {
+                            for (int i5 = 0; i5 < 1 && i5 < a5.length; i5++) {
+                                for (int i6 = 0; i6 < 1 && i6 < a6.length; i6++) {
+                                    for (int i7 = 0; i7 < 1 && i7 < a7.length; i7++) {
+                                        for (int i8 = 0; i8 < 1 && i8 < a8.length; i8++) {
+                                            for (int i9 = 0; i9 < 1 && i9 < a9.length; i9++) {
+                                                for (int i10 = 0; i10 < 1 && i10 < a10.length; i10++) {
+                                                    for (int i11 = 0; i11 < 1 && i11 < a11.length; i11++) {
+                                                        for (int i12 = 0; i12 < 1 && i12 < a12.length; i12++) {
+                                                            for (int i13 = 0; i13 < 1 && i13 < a13.length; i13++) {
+                                                                for (int i14 = 0; i14 < 1 && i14 < a14.length; i14++) {
+                                                                    for (int i15 = 0; i15 < 1 && i15 < a15.length; i15++) {
+                                                                        for (int i16 = 0; i16 < 1 && i16 < a16.length; i16++) {
+                                                                            for (int i17 = 0; i17 < 1 && i17 < a17.length; i17++) {
+                                                                                for (int i18 = 0; i18 < 1 && i18 < a18.length; i18++) {
+                                                                                    for (int i19 = 0; i19 < 1 && i19 < a19.length; i19++) {
+                                                                                        s += a0[i0];
+                                                                                        s += a1[i1];
+                                                                                        s += a2[i2];
+                                                                                        s += a3[i3];
+                                                                                        s += a4[i4];
+                                                                                        s += a5[i5];
+                                                                                        s += a6[i6];
+                                                                                        s += a7[i7];
+                                                                                        s += a8[i8];
+                                                                                        s += a9[i9];
+                                                                                        s += a10[i10];
+                                                                                        s += a11[i11];
+                                                                                        s += a12[i12];
+                                                                                        s += a13[i13];
+                                                                                        s += a14[i14];
+                                                                                        s += a15[i15];
+                                                                                        s += a16[i16];
+                                                                                        s += a17[i17];
+                                                                                        s += a18[i18];
+                                                                                        s += a19[i19];
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return s; }
+
+
     @SuppressWarnings("ResultOfMethodCallIgnored")
     public static void main(String[] args) throws InvocationTargetException, IllegalAccessException {
         int[] ints = {1,2,3,4, 5, 6, 7, 8};

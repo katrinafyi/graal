@@ -50,10 +50,12 @@ def go(n: int, multiple: bool, trans: int, transrandom: bool):
     if tth not in transes:
       transes.add(tth)
       prelude.append(f'if (!({tth}.length >= {trans})) return -1;')
+      for t in range(trans):
+        prelude.append(f'int {tth}_{t} = {tth}[{t}];')
 
     tr = []
     for t in range(trans):
-      tr.append(f'{tth}[{t}]')
+      tr.append(f'{tth}_{t}')
     tr.append(f'{ath}.length')
 
     ineqs = [f'{l} <= {r}' for l,r in window(tr)]

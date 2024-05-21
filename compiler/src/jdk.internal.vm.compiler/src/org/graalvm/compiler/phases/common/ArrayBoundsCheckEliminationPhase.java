@@ -285,7 +285,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                     optlog.report(ArrayBoundsCheckEliminationPhase.class, "BoundsCheckUpperRedundant", boundsCheck);
                     boundsCheck.setRedundantUpperBound(true);
                 } else {
-                    optlog.report(ArrayBoundsCheckEliminationPhase.class, "BoundsCheckUpperNonredundant", boundsCheck);
+                    optlog.report(ArrayBoundsCheckEliminationPhase.class, "BoundsCheckUpperNonRedundant", boundsCheck);
                 }
 
 //            var lowerProver = prover = new DemandProver(boundsCheck, piContextsInScope, false);

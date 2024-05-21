@@ -370,5 +370,9 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
         Assert.assertEquals(TRUE, phase.upperProvers.get(0).prove());
     }
 
+    @Test
+    public void test_big() {
+        testCommon("big_n20_multipleTrue_trans0_transrandomTrue_f");
+    }
 
 }
