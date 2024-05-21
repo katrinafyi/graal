@@ -81,6 +81,7 @@ public class GlobalMetrics {
         if (metricsFile == null) {
             return DebugContext.getDefaultLogStream();
         } else {
+            metricsFile = DebugContext.timestampMetricsFile(metricsFile);
             long isolateID = IsolateUtil.getIsolateID();
             Path path;
             if (isolateID != 0L) {

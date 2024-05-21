@@ -48,10 +48,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Date;
 import java.util.Formatter;
 import java.util.HashMap;
 import java.util.List;
@@ -2212,6 +2214,14 @@ public final class DebugContext implements AutoCloseable {
      */
     private static boolean metricsFileDeleteCheckPerformed;
 
+    static String timestampMetricsFile(String metricsFile) {
+        var dot = metricsFile.lastIndexOf('.');
+        var ext = metricsFile.substring(dot);
+        var name = metricsFile.substring(0, dot);
+        var fmt = new SimpleDateFormat("yyyy-MM-dd-HH:mm");
+        return name + "-" + fmt.format(new Date()) + ext;
+    }
+
     /**
      * Prints metric values in this object to the file (if any) specified by
      * {@link DebugOptions#MetricsFile}.
@@ -2222,6 +2232,7 @@ public final class DebugContext implements AutoCloseable {
         }
         String metricsFile = DebugOptions.MetricsFile.getValue(getOptions());
         if (metricsFile != null) {
+            metricsFile = timestampMetricsFile(metricsFile);
             // Use identity to distinguish methods that have been redefined
             // or loaded by different class loaders.
             Object compilable = desc.compilable;
