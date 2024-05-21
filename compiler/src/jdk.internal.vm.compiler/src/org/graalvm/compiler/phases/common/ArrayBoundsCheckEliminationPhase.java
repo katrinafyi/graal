@@ -31,6 +31,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Deque;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -121,6 +123,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             if (Options.DisableABCE.getValue(graph.getOptions())) {
                 return;
             }
+            var debug = Options.DebugABCE.getValue(graph.getOptions());
             var unsafe = Options.UnsafeABCE.getValue(graph.getOptions());
             if (unsafe) {
                 for (var node : graph.getNodes()) {
@@ -132,7 +135,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 return;
             }
 
-            out = Options.DebugABCE.getValue(graph.getOptions()) ? System.out : new PrintStream(OutputStream.nullOutputStream());
+            out = debug ? System.out : new PrintStream(OutputStream.nullOutputStream());
             var optlog = graph.getOptimizationLog();
 
             // just printing the cfg
@@ -146,16 +149,19 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             }
 
             var zero = graph.addOrUnique(ConstantNode.forInt(0));
-            final ArrayDeque<PiContext> deque = new ArrayDeque<>();
-            var topContext = new PiContext(List.of(), cfg.getStartBlock().getBeginNode(), cfg.getStartBlock());
-            topContext.fullBlocks.addAll(Arrays.asList(cfg.getBlocks()));
-            deque.push(topContext);
+            var topContext = new PiContext(List.of(), cfg.getStartBlock().getBeginNode(), cfg.getStartBlock(), null);
 //        addPiNodes(cfg.getStartBlock(), deque);
 
             var visitor = new AddPiNodesVisitor();
+            visitor.addContext(topContext);
+            var piContextMap = new NodeMap<PiContext>(graph);
             cfg.visitDominatorTree(visitor, false);
             for (var ctx : visitor.allContexts) {
                 piContexts.put(ctx.begin, ctx);
+                for (var node : ctx.nodes) {
+                    assert !piContextMap.containsKey(node) : "duplicated key in piContextMap: " + node + " 1:" + piContextMap.get(node) + " 2:" + ctx;
+                    piContextMap.put(node, ctx);
+                }
             }
 
 //        ControlFlowGraph.RecursiveVisitor<?> visitor = createVisitor(graph, cfg, blockToNodes, nodeToBlock, context);
@@ -256,7 +262,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 topContext.addEdge(EssaVar.pi(r), EssaVar.pi(l), lv - rv);
             }
 
-            out.println("PI CONTEXT: " + piContexts);
+            if (debug) out.println("PI CONTEXT: " + piContexts);
             int i = 2;
             for (var boundsCheck : boundsChecks) {
                 optlog.report(ArrayBoundsCheckEliminationPhase.class, "BoundsCheck", boundsCheck);
@@ -266,14 +272,7 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
                 var lengthnode = new EssaVar.LengthNodeVar(boundsCheck.array());
                 var indexnode = boundsCheck.index();
                 List<PiContext> piContextsInScope = new ArrayList<>();
-                piContextsInScope.add(topContext);
-                for (var it = piContexts.getEntries(); it.advance(); ) {
-                    var ctx = it.getValue();
-                    if (ctx.fullBlocks.contains(theblock) || ctx.beginNodes.contains(boundsCheck)) {
-                        piContextsInScope.add(ctx);
-                        out.println(ctx.beginNodes);
-                    }
-                }
+                piContextMap.get(boundsCheck).parentIterator().forEach(piContextsInScope::add);
 
                 DemandProver prover;
                 DemandProver.Lattice result;
@@ -311,32 +310,32 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
         public final EconomicMap<Pair<EssaVar, EssaVar>, Long> overlay = EconomicMap.create();
         public final EconomicSet<Pair<EssaVar, EssaVar>> symmetric = EconomicSet.create();
         // a mapping of array nodes to their length nodes. used when constructing pi nodes after array-accesses.
-        public final NodeMap<ArrayLengthNode> lengthNodes;
+        public final EconomicMap<Node, ArrayLengthNode> lengthNodes;
         public final FixedNode begin; // exclusive!
 
-        /** set of nodes in the begin block which are affected by this context. */
-        public final EconomicSet<FixedNode> beginNodes = EconomicSet.create();
-        /** set of blocks which are fully-affected by this context. */
-        public final EconomicSet<HIRBlock> fullBlocks = EconomicSet.create();
+        /** set of nodes where this context is the innermost context. */
+        public final EconomicSet<FixedNode> nodes = EconomicSet.create();
+        public final PiContext parent;
         public final List<Node> piBases;
 
-        private PiContext(Node piBase, FixedNode begin, HIRBlock beginBlock) {
-            this(List.of(piBase), begin, beginBlock);
+        private PiContext(Node piBase, FixedNode begin, HIRBlock beginBlock, PiContext parent) {
+            this(List.of(piBase), begin, beginBlock, parent);
         }
 
-        private PiContext(List<Node> piBases, FixedNode begin, HIRBlock beginBlock) {
+        private PiContext(List<Node> piBases, FixedNode begin, HIRBlock beginBlock, PiContext parent) {
             this.piBases = piBases;
             this.begin = begin;
-            this.lengthNodes = new NodeMap<>(begin.graph());
+            this.lengthNodes = EconomicMap.create();
+            this.parent = parent;
 
-            var it = beginBlock.getNodes().iterator();
-            while (it.hasNext() && !it.next().equals(begin));
-            while (it.hasNext()) beginNodes.add(it.next());
+//            var it = beginBlock.getNodes().iterator();
+//            while (it.hasNext() && !it.next().equals(begin));
+//            while (it.hasNext()) nodes.add(it.next());
         }
 
         @Override
         public String toString() {
-            return String.format("PiContext(begin=%s, nodes=%s, blocks=%s)", begin, beginNodes, fullBlocks);
+            return String.format("PiContext(begin=%s, nodes=%s)", begin, nodes);
         }
 
         /**
@@ -361,13 +360,28 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
             addEdge(src, tgt, weight);
             symmetric.add(Pair.create(src, tgt));
         }
+
+        public Iterable<PiContext> parentIterator() {
+            var that = this;
+            return () -> new Iterator<>() {
+                private PiContext ctx = that;
+                @Override public boolean hasNext() { return ctx != null; }
+
+                @Override
+                public PiContext next() {
+                    var ret = ctx;
+                    ctx = ctx.parent;
+                    return ret;
+                }
+            };
+        }
     }
 
     private static class AddPiNodesVisitor implements ControlFlowGraph.RecursiveVisitor<Integer> {
         public final List<PiContext> allContexts = new ArrayList<>();
         private final Deque<PiContext> contextStack = new ArrayDeque<>();
 
-        private int addContext(PiContext pi) {
+        public int addContext(PiContext pi) {
             contextStack.push(pi);
             allContexts.add(pi);
             return 1;
@@ -375,19 +389,20 @@ public class ArrayBoundsCheckEliminationPhase extends Phase {
 
         @Override
         public Integer enter(HIRBlock b) {
-            for (var c : contextStack) {
-                c.fullBlocks.add(b);
-            }
+//            for (var c : contextStack) {
+//                c.fullBlocks.add(b);
+//            }
 
             int numContexts = 0;
             if (b.getBeginNode().predecessor() instanceof IfNode ifnode && ifnode.condition() instanceof BinaryOpLogicNode binop) {
                 out.println("enter: IF " + b);
-                numContexts += addContext(new PiContext(List.of(binop.getX(), binop.getY()), b.getBeginNode(), b));
+                numContexts += addContext(new PiContext(List.of(binop.getX(), binop.getY()), b.getBeginNode(), b, contextStack.getFirst()));
             }
 
             for (var node : b.getNodes()) {
+                contextStack.getFirst().nodes.add(node);
                 if (node instanceof final AccessIndexedNode load) {
-                    numContexts += addContext(new PiContext(load.index(), load, b));
+                    numContexts += addContext(new PiContext(load.index(), load, b, contextStack.getFirst()));
                 }
             }
 
