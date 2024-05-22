@@ -2218,7 +2218,7 @@ public final class DebugContext implements AutoCloseable {
         var dot = metricsFile.lastIndexOf('.');
         var ext = metricsFile.substring(dot);
         var name = metricsFile.substring(0, dot);
-        var fmt = new SimpleDateFormat("yyyy-MM-dd-HH:mm");
+        var fmt = new SimpleDateFormat("yyyy-MM-dd-HH:mm:ss.SSS");
         return name + "-" + fmt.format(new Date()) + ext;
     }
 
