@@ -70,3 +70,6 @@ to do:
   vary: multiple arrays vs single array.
   vary: transitivity? possibly by introducing a array of transitive variables for each array. we can very number of transitive elements.
   vary: number of bounds checks.
+
+2024-05-22:
+- need to rerun benchmarks with disable loop unrolling (!)
