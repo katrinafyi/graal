@@ -33,7 +33,7 @@ print(f'{d=}')
 
 
 jmh_suites = {'micro', 'hashcode'}
-jmh_suites = {'micro'}
+jmh_suites = {'big'}
 specjvm_suites = {'scimark'}
 modes = ['base', 'abce', 'unsafe']
 
@@ -69,6 +69,7 @@ allresults = []
 for f in d.glob('*'):
   print(f)
   if f.suffix == '.csv': continue
+  if f.is_dir() and f.name.endswith('_metrics'): continue
   terms = f.stem.split('_')
   print(terms)
   results = []
@@ -94,7 +95,7 @@ name_map = defaultdict(str, {
 
 df = pd.DataFrame(vars(x) for x in allresults)
 df = df.sort_values(by='mode', key=lambda x: x.map(modes.index)).reset_index(drop=True)
-df['x'] = df['test'].map(name_map.get)
+df['x'] = df['test'].map(lambda x: name_map.get(x) or x)
 df = (df.sort_values(by=['x']))
 df = df.reset_index(drop=True)
 df['mode'] = list(map(lambda x: str(x).title() if str(x) != 'abce' else 'ABCE', df['mode']))
@@ -103,8 +104,8 @@ print(df)
 plt.style.use('./tex.mplstyle')
 plt.figure(figsize=(4.1,3))
 # plt.yscale('log')
-# plt.xticks(rotation=45)
-sns.barplot(data=df.loc[(df['unit'] != 'ops/s')], x='x', y='result', hue='mode', hue_order=['Base', 'ABCE', 'Unsafe'])
+plt.xticks(rotation=90)
+sns.barplot(data=df.loc[(df['test'].str.contains('big'))], x='x', y='result', hue='mode', hue_order=['Base', 'ABCE', 'Unsafe'])
 # ax2 = plt.twinx()
 # sns.barplot(ax=ax2, data=df.loc[df['unit'] == 'ops/min'], x='x', y='result', hue='mode')
 plt.xlabel('')

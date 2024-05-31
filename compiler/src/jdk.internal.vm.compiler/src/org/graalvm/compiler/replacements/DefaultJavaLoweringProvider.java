@@ -1254,12 +1254,16 @@ public abstract class DefaultJavaLoweringProvider implements LoweringProvider {
         StructuredGraph graph = n.graph();
 
         if (n.isRedundantUpperBound()) {
-            if (n.isRedundantLowerBound()) return null;
+            if (n.isRedundantLowerBound()) return null; // both sides redundant
+
+            // only upper-bounds redundant.
+            // implement lower bounds check by unsigned compare to INT_MAX+1,
+            // as array indices are 32-bit and have maximum (signed) INT_MAX elements.
+            // this avoids reading array length.
             var constant = graph.addOrUnique(ConstantNode.forLong(Integer.MAX_VALUE + 1L));
-            if (n.index().stamp(NodeView.DEFAULT) instanceof IntegerStamp istamp && istamp.getBits() == 32)
-                return null; // XXX: if index is only 32-bits, it _probably_ will not overflow into negatives.
             boundsCheck = IntegerBelowNode.create(n.index(), constant, NodeView.DEFAULT);
         } else {
+          // no redundancies, compare (unsigned) to array length.
             ValueNode arrayLength = readOrCreateArrayLength(n, array, tool, graph);
             boundsCheck = IntegerBelowNode.create(n.index(), arrayLength, NodeView.DEFAULT);
             if (boundsCheck.isTautology()) {
