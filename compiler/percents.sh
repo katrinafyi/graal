@@ -12,9 +12,16 @@ go() {
 
   times=$( cat $csv | grep "$bench" | grep 'PhaseTime_ArrayBoundsCheckEliminationPhase_Accm;' | cut -d';' -f6 | sum)
 
-  echo $bench $elim $non
-  echo "scale = 4; $elim / ($elim + $non)" | bc
+  nodes=$( cat $csv | grep "$bench" | grep 'PhaseNodes_ArrayBoundsCheckEliminationPhase;' | cut -d';' -f6 | sum)
+
+  echo "% $bench $elim $non"
+  echo "$elim + $non" | bc
+  echo '&'
+  echo '$'"$(echo "scale = 4; $elim / ($elim + $non) * 100" | bc | xargs printf '%.1f')\$\%" '&'
+  echo $nodes '&'
   echo "scale = 0; $times / 1000" | bc
+  echo '\\'
+  echo
 }
 
 echo $csv
