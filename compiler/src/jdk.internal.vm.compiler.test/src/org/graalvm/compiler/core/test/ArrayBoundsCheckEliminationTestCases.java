@@ -292,6 +292,36 @@ public class ArrayBoundsCheckEliminationTestCases {
         return s;
     }
 
+  public static void f(int[] a) {
+    int i = 0;
+    while (i < a.length) {
+      GraalDirectives.blackhole(a[i]);
+      i++;
+    }
+    GraalDirectives.blackhole(a[i]);
+  }
+
+    public static void g(Object x) {
+      if (x instanceof String string) {
+          GraalDirectives.blackhole(string.length());
+      }
+    }
+
+    public static void problem(int[] a) {
+        if (a.length == 0) {
+            return; }
+            {
+            int x = 100000;
+            int y = 0;
+            for (int i = 0; i < 10000; i++) {
+                if (x < a.length)
+                    GraalDirectives.blackhole(a[y]);
+                y = x;
+                x = -1;
+            }
+        }
+    }
+
     public static int bubblesort(int[] a) {
         var limit = a.length;
         var st = -1;

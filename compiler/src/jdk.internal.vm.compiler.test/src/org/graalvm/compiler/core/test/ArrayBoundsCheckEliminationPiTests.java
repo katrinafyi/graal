@@ -375,4 +375,8 @@ public class ArrayBoundsCheckEliminationPiTests extends GraalCompilerTest {
         testCommon("big_n20_multipleTrue_trans0_transrandomTrue_f");
     }
 
+    @Test public void test_f() { prepare("f", ArrayBoundsCheckEliminationTestCases.class); }
+    @Test public void test_g() { prepare("g", ArrayBoundsCheckEliminationTestCases.class); }
+    @Test public void test_problem() { prepare("problem", ArrayBoundsCheckEliminationTestCases.class); }
+
 }

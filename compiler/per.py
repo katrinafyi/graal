@@ -7,6 +7,6 @@ test = sys.argv[1]
 
 d = json.load(sys.stdin)
 for data in d: 
-    if test.replace('Sort', '') in data['benchmark'].split('.')[-1]:
+    if test.replace('Sort', '').strip('\\.') in data['benchmark'].split('.')[-1]:
         print(data['primaryMetric']['score'])
 

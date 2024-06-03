@@ -32,8 +32,8 @@ d = Path(sys.argv[1])
 print(f'{d=}')
 
 
-jmh_suites = {'micro', 'hashcode'}
-jmh_suites = {'micro'}
+# jmh_suites = {'micro', 'hashcode', 'big'}
+jmh_suites = {'big'}
 specjvm_suites = {'scimark'}
 modes = ['base', 'abce', 'unsafe']
 
@@ -68,7 +68,7 @@ def parse_specjvm(p: Path) -> Generator[Result, None, None]:
 allresults = []
 for f in d.glob('*'):
   print(f)
-  if f.suffix == '.csv': continue
+  if f.suffix == '.csv' or f.name.endswith('_metrics'): continue
   terms = f.stem.split('_')
   print(terms)
   results = []
@@ -86,31 +86,60 @@ name_map = defaultdict(str, {
   'scimark.lu.small': 'LU',
   'scimark.sor.small': 'SOR',
   'scimark.sparse.small': 'Sparse',
-  'selection': 'Selection sort',
-  'cocktail': 'Cocktail sort',
-  'insert': 'Insertion sort',
-  'bubble': 'Bubble sort',
+  'selection': 'Selection',
+  'cocktail': 'Cocktail',
+  'insert': 'Insertion',
+  'bubble': 'Bubble',
 })
+
+def translate_name(x):
+  # if x in name_map: return name_map[x]
+  if x.startswith('bench_big'):
+    n = ([y for y in x.split('_') if y.startswith('n') and y[1].isdigit()][0][1:])
+    trans = ([y for y in x.split('_') if y.startswith('trans') and y[5].isdigit()][0][5:])
+    print(x, n, trans)
+    return n, trans
+
+  return (None,None)
+
 
 df = pd.DataFrame(vars(x) for x in allresults)
 df = df.sort_values(by='mode', key=lambda x: x.map(modes.index)).reset_index(drop=True)
-df['x'] = df['test'].map(name_map.get)
-df = (df.sort_values(by=['x']))
+df['n'] = df['test'].map(lambda x: translate_name(x)[0])
+df['trans'] = df['test'].map(lambda x: translate_name(x)[1])
+df['x'] = 'n=' + df['n'] + ', trans=' + df['trans']
+df = (df.sort_values(by=['trans']))
 df = df.reset_index(drop=True)
 df['mode'] = list(map(lambda x: str(x).title() if str(x) != 'abce' else 'ABCE', df['mode']))
 
 print(df)
 plt.style.use('./tex.mplstyle')
-plt.figure(figsize=(4.1,3))
+plt.figure(figsize=(3.5,3))
 # plt.yscale('log')
 # plt.xticks(rotation=45)
-sns.barplot(data=df.loc[(df['unit'] != 'ops/s')], x='x', y='result', hue='mode', hue_order=['Base', 'ABCE', 'Unsafe'])
+
+
+d = df.loc[
+    (df['benchmark'] == 'BigBenchmark') & (df['x'].str.contains('trans=0') | df['x'].str.contains('trans=2'))
+    & df['trans'] == 0
+    ]
+
+print(d)
+
+# g = sns.FacetGrid(d, col="trans", row='n')
+# g.map(sns.barplot, 'x', 'result')
+
+ax1 = sns.barplot(data=d, x='x', y='result', hue='mode', hue_order=['Base', 'ABCE', 'Unsafe'])
+
 # ax2 = plt.twinx()
 # sns.barplot(ax=ax2, data=df.loc[df['unit'] == 'ops/min'], x='x', y='result', hue='mode')
 plt.xlabel('')
-plt.ylabel('benchmark result (ops/min)')
-plt.title('SciMark 2 Benchmarks')
+plt.ylabel('benchmark result (ops/s)')
+plt.title('Sorting Benchmarks')
 plt.legend(loc='lower left', framealpha=1)
+
+# ax2 = ax1.twinx()
+# ax2 = sns.barplot(data=df.loc[(df['unit'] == 'ops/s')], x='x', y='result', hue='mode', hue_order=['Base', 'ABCE', 'Unsafe'])
 # plt.show()
 
 plt.savefig('fig.pdf', bbox_inches='tight')

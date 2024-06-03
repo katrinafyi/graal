@@ -114,6 +114,9 @@ def genprint(generator):
     print(x)
 
 if __name__ == '__main__':
+  # print(*go(2, True, 2, True), sep='\n')
+  # raise 2
+
   body = []
   body.append(go(10, True, 0, True))
   body.append(go(20, True, 0, True))
@@ -132,6 +135,7 @@ if __name__ == '__main__':
   # body.append(go(200, True, 2, True))
   body.append(go(200, True, 5, True))
   body.append(go(200, True, 10, True))
+
   # body.append(go(1000, True, 0, False))
   # body.append(go(2000, True, 0, False))
   # body.append(go(200, True, 20, True))
